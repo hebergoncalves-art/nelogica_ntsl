@@ -1,0 +1,1214 @@
+// Original: Smart Money Concepts, Pine v6, Copyright LuxAlgo.
+// https://www.tradingview.com/script/CnB3fSph-Smart-Money-Concepts-SMC-LuxAlgo/
+// NTSL adaptation: swing, internal structure, order blocks, equal highs/lows, fair value gaps, premium/discount zones and breakers. CC BY-NC-SA 4.0.
+// https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+const
+  JanelaInterna = 5;
+  CapacidadeBlocos = 100;
+  TotalEspacosBlocos = 600;
+  LimiteFaixasPorGrupo = 20;
+  TotalFaixasVisuais = 40;
+  CapacidadeFVG = 100;
+  TotalEspacosFVG = 300;
+  LimiteFaixasFVG = 5;
+  CapacidadeBreaker = 100;
+  TotalEspacosBreaker = 300;
+  QuadrosOBRemovidos = 5;
+  TotalEspacosOBRemovidos = 500;
+
+input
+  PeriodoSwing(50);
+  MostrarPivos(False);
+  MostrarEstruturaInterna(False);
+  FiltroConfluenciaInterna(False);
+  MostrarBlocosInternos(False);
+  MostrarBlocosSwing(False);
+  QuantidadeBlocosInternos(5);
+  QuantidadeBlocosSwing(5);
+  UsarATRBlocos(True);
+  MitigarPorFechamento(False);
+  ModoFaixaOB(0);
+  OrdemFaixaOB(1);
+  AncorarFaixaOB(True);
+  MostrarEQHEQL(False);
+  BarrasConfirmacaoEQ(3);
+  LimiarEQ(0.1);
+  MostrarFVG(False);
+  FiltroAutomaticoFVG(True);
+  ExtensaoFVG(1);
+  CorFVGAlta(clGreen);
+  CorFVGBaixa(clRed);
+  MostrarZonasPD(False);
+  CorZonaPremium(clRed);
+  CorZonaEquilibrium(clGray);
+  CorZonaDiscount(clTeal);
+  MostrarBreakerBlocks(False);
+
+var
+  periodo, perna, vies : Integer;
+  nivelTopo, nivelFundo : Float;
+  temTopo, temFundo, topoRompido, fundoRompido : Boolean;
+  rompeTopo, rompeFundo : Boolean;
+  pernaInterna, viesInterno : Integer;
+  topoInterno, fundoInterno, pavioSuperior, medidaInferior : Float;
+  temTopoInterno, temFundoInterno, topoInternoRompido, fundoInternoRompido : Boolean;
+  rompeTopoInterno, rompeFundoInterno : Boolean;
+  barraTopo, barraFundo, barraTopoInterno, barraFundoInterno : Integer;
+  calculaEQ, temTopoEQ, temFundoEQ : Boolean;
+  janelaEQ, pernaEQ : Integer;
+  topoEQ, fundoEQ, toleranciaEQ : Float;
+  trAtual, somaTR, atrWilder, volatilidade, maxBloco, minBloco : Float;
+  evento, janelaBusca, origem, deslocamento, grupo, lado : Integer;
+  dataCandle, horaCandle, quadroAtual, quadroAnterior, listaAtual, listaAnterior : Integer;
+  baseAtual, baseAnterior, indiceAtual, indiceAnterior, descarte, primeiroEvento : Integer;
+  primeiroGrupo, ultimoGrupo, total, totalAnterior, leitura, quantidade, cor, posicaoFaixa : Integer;
+  comparar, extremo, precoAlta, precoBaixa, limiteSuperior, limiteInferior : Float;
+  centroBloco, meiaAlturaBloco : Float;
+  faixaSuperior, faixaInferior : Float;
+  faixaSelecionada, calculaBlocosSwing, calculaBlocosInternos : Boolean;
+  ladoFaixa, grupoFaixa, ordemFaixa, encontradas, criacaoFaixa, dataFaixa, horaFaixa : Integer;
+  buscas, origens : array[1..4] of Integer;
+  origensVisuais, coresVisuais : array[1..TotalFaixasVisuais] of Integer;
+  centrosVisuais, alturasVisuais : array[1..TotalFaixasVisuais] of Float;
+  faixasVisiveis : array[1..TotalFaixasVisuais] of Boolean;
+  carimbosBlocos : array[0..2] of Integer;
+  quantidadesBlocos : array[0..5] of Integer;
+  direcoes, datasBlocos, horasBlocos : array[1..TotalEspacosBlocos] of Integer;
+  criacoesBlocos : array[1..TotalEspacosBlocos] of Integer;
+  superioresBlocos, inferioresBlocos : array[1..TotalEspacosBlocos] of Float;
+
+  retornoFVG, somaRetornosFVG, limiarFVG : Float;
+  ladoNovoFVG, extensaoEfetivaFVG : Integer;
+  quadroFVG, quadroAnteriorFVG, baseFVG, baseAnteriorFVG : Integer;
+  totalFVG, totalAnteriorFVG, reservaFVG, leituraFVG, entradaFVG, saidaFVG, posicaoFVG, visiveisFVG : Integer;
+  carimbosFVG, quantidadesFVG : array[0..2] of Integer;
+  formacoesFVG, direcoesFVG : array[1..TotalEspacosFVG] of Integer;
+  datasOrigemFVG, horasOrigemFVG, datasDireitaFVG, horasDireitaFVG : array[1..TotalEspacosFVG] of Integer;
+  superioresFVG, inferioresFVG : array[1..TotalEspacosFVG] of Float;
+  centrosFVG, alturasFVG : array[1..LimiteFaixasFVG] of Float;
+  coresFVG, diasInicioFVG, horasInicioFVG, diasFimFVG, horasFimFVG : array[1..LimiteFaixasFVG] of Integer;
+  diasFimPrimeiroTrechoFVG, horasFimPrimeiroTrechoFVG : array[1..LimiteFaixasFVG] of Integer;
+  primeirosDiasIntermediariosFVG, ultimosDiasIntermediariosFVG : array[1..LimiteFaixasFVG] of Integer;
+  temDiasIntermediariosFVG : array[1..LimiteFaixasFVG] of Boolean;
+
+  topoPD, fundoPD, amplitudePD, meiaAlturaPD : Float;
+  centroPremiumPD, centroEquilibriumPD, centroDiscountPD : Float;
+  diaOrigemPD, horaOrigemPD, fimPrimeiroDiaPD, horaFimPrimeiroDiaPD : Integer;
+  primeiroDiaIntermediarioPD, ultimoDiaIntermediarioPD : Integer;
+
+  exibeFVG, calculaBreaker : Boolean;
+  ladoOrigemBreaker, quadroOBRemovido, indiceOBRemovido : Integer;
+  carimbosOBRemovidos, quantidadesOBRemovidos : array[0..4] of Integer;
+  criacoesOBRemovidos : array[1..TotalEspacosOBRemovidos] of Integer;
+  inferioresOBRemovidos, superioresOBRemovidos : array[1..TotalEspacosOBRemovidos] of Float;
+  quadroBreaker, quadroAnteriorBreaker, quadroConsultaOB, atrasoOB : Integer;
+  baseBreaker, baseAnteriorBreaker, totalBreaker, totalAnteriorBreaker, leituraBreaker : Integer;
+  entradaBreaker, saidaBreaker, ordemBreaker, diaBreaker, horaBreaker, fimDiaBreaker : Integer;
+  carimbosBreaker, quantidadesBreaker : array[0..2] of Integer;
+  datasBreaker, horasBreaker : array[1..TotalEspacosBreaker] of Integer;
+  inferioresBreaker, superioresBreaker : array[1..TotalEspacosBreaker] of Float;
+  aberturaA, fechamentoA, fechamentoB, fechamentoC, extremoA, extremosAB : Float;
+  inferFVGFechado, superFVGFechado, inferBreaker, superBreaker, chegadaBreaker, saidaTravessia : Float;
+  centroBreaker, alturaBreaker : Float;
+
+begin
+  // Gravar data e hora em series antes de consultar candles anteriores.
+  dataCandle := Date;
+  horaCandle := Time;
+
+  calculaBlocosSwing := ((ModoFaixaOB = 0) and MostrarBlocosSwing)
+    or (ModoFaixaOB = 1) or (ModoFaixaOB = 2);
+  calculaBlocosInternos := ((ModoFaixaOB = 0) and MostrarBlocosInternos)
+    or (ModoFaixaOB = 3) or (ModoFaixaOB = 4);
+  calculaEQ := (ModoFaixaOB = 0) and MostrarEQHEQL;
+  exibeFVG := (ModoFaixaOB = 0) and MostrarFVG;
+  calculaBreaker := MostrarBreakerBlocks and ((ModoFaixaOB = 1) or (ModoFaixaOB = 2));
+  if calculaBreaker then
+  begin
+    ladoOrigemBreaker := 1;
+    if ModoFaixaOB = 2 then
+      ladoOrigemBreaker := -1;
+
+    if CurrentBar = 0 then
+    begin
+      for leituraBreaker := 0 to QuadrosOBRemovidos - 1 do
+        carimbosOBRemovidos[leituraBreaker] := 0;
+      for leituraBreaker := 0 to 2 do
+        carimbosBreaker[leituraBreaker] := 0;
+    end;
+    quadroOBRemovido := Mod(CurrentBar, QuadrosOBRemovidos);
+    quantidadesOBRemovidos[quadroOBRemovido] := 0;
+    carimbosOBRemovidos[quadroOBRemovido] := CurrentBar + 1;
+  end;
+  faixaSelecionada := False;
+  criacaoFaixa := 0;
+
+  periodo := PeriodoSwing;
+  if periodo < 10 then
+    periodo := 10;
+
+  // Partir da barra anterior tambem durante reavaliacoes intrabar.
+  if CurrentBar = 0 then
+  begin
+    perna := 0;
+    vies := 0;
+    nivelTopo := 0;
+    nivelFundo := 0;
+    temTopo := False;
+    temFundo := False;
+    topoRompido := False;
+    fundoRompido := False;
+    pernaInterna := 0;
+    viesInterno := 0;
+    topoInterno := 0;
+    fundoInterno := 0;
+    temTopoInterno := False;
+    temFundoInterno := False;
+    topoInternoRompido := False;
+    fundoInternoRompido := False;
+    barraTopo := 0;
+    barraFundo := 0;
+    barraTopoInterno := 0;
+    barraFundoInterno := 0;
+  end
+  else
+  begin
+    perna := perna[1];
+    vies := vies[1];
+    nivelTopo := nivelTopo[1];
+    nivelFundo := nivelFundo[1];
+    temTopo := temTopo[1];
+    temFundo := temFundo[1];
+    topoRompido := topoRompido[1];
+    fundoRompido := fundoRompido[1];
+    pernaInterna := pernaInterna[1];
+    viesInterno := viesInterno[1];
+    topoInterno := topoInterno[1];
+    fundoInterno := fundoInterno[1];
+    temTopoInterno := temTopoInterno[1];
+    temFundoInterno := temFundoInterno[1];
+    topoInternoRompido := topoInternoRompido[1];
+    fundoInternoRompido := fundoInternoRompido[1];
+    barraTopo := barraTopo[1];
+    barraFundo := barraFundo[1];
+    barraTopoInterno := barraTopoInterno[1];
+    barraFundoInterno := barraFundoInterno[1];
+  end;
+
+  rompeTopo := False;
+  rompeFundo := False;
+  rompeTopoInterno := False;
+  rompeFundoInterno := False;
+
+  if CurrentBar >= periodo then
+  begin
+    if High[periodo] > Highest(High, periodo) then
+      perna := 0
+    else if Low[periodo] < Lowest(Low, periodo) then
+      perna := 1;
+
+    if perna <> perna[1] then
+    begin
+      if perna = 1 then
+      begin
+        nivelFundo := Low[periodo];
+        barraFundo := CurrentBar - periodo;
+        temFundo := True;
+        fundoRompido := False;
+        if (ModoFaixaOB = 0) and MostrarPivos then
+          PlotText("Fundo swing", clLime, 0, 10);
+      end
+      else
+      begin
+        nivelTopo := High[periodo];
+        barraTopo := CurrentBar - periodo;
+        temTopo := True;
+        topoRompido := False;
+        if (ModoFaixaOB = 0) and MostrarPivos then
+          PlotText("Topo swing", clRed, 2, 10);
+      end;
+    end;
+
+    // A comparacao anterior usa o nivel anterior da serie, como no Pine.
+    rompeTopo := temTopo and temTopo[1] and (not topoRompido)
+      and (Close > nivelTopo) and (Close[1] <= nivelTopo[1]);
+    rompeFundo := temFundo and temFundo[1] and (not fundoRompido)
+      and (Close < nivelFundo) and (Close[1] >= nivelFundo[1]);
+  end;
+
+  if (ModoFaixaOB = 0) and MostrarZonasPD then
+  begin
+    topoPD := 0;
+    fundoPD := 0;
+    diaOrigemPD := 0;
+    horaOrigemPD := 0;
+
+    if CurrentBar > 0 then
+    begin
+      diaOrigemPD := diaOrigemPD[1];
+      horaOrigemPD := horaOrigemPD[1];
+      if temTopo[1] then
+        topoPD := Max(topoPD[1], High);
+      if temFundo[1] then
+        fundoPD := Min(fundoPD[1], Low);
+
+      if LastBarOnChart and temTopo[1] and temFundo[1] and (topoPD > fundoPD) then
+      begin
+        amplitudePD := topoPD - fundoPD;
+        meiaAlturaPD := amplitudePD * 0.025;
+        centroPremiumPD := topoPD - meiaAlturaPD;
+        centroEquilibriumPD := fundoPD + amplitudePD / 2;
+        centroDiscountPD := fundoPD + meiaAlturaPD;
+
+        fimPrimeiroDiaPD := dataCandle;
+        horaFimPrimeiroDiaPD := horaCandle;
+        if diaOrigemPD <> dataCandle then
+        begin
+          fimPrimeiroDiaPD := diaOrigemPD;
+          horaFimPrimeiroDiaPD := 2359;
+        end;
+
+        HorizontalLineCustom(centroPremiumPD, CorZonaPremium, 1, 0, "Premium", 8, 1,
+          diaOrigemPD, fimPrimeiroDiaPD, meiaAlturaPD, horaOrigemPD, horaFimPrimeiroDiaPD);
+        HorizontalLineCustom(centroEquilibriumPD, CorZonaEquilibrium, 1, 0, "Equilibrium", 8, 1,
+          diaOrigemPD, fimPrimeiroDiaPD, meiaAlturaPD, horaOrigemPD, horaFimPrimeiroDiaPD);
+        HorizontalLineCustom(centroDiscountPD, CorZonaDiscount, 1, 0, "Discount", 8, 1,
+          diaOrigemPD, fimPrimeiroDiaPD, meiaAlturaPD, horaOrigemPD, horaFimPrimeiroDiaPD);
+
+        if diaOrigemPD <> dataCandle then
+        begin
+          primeiroDiaIntermediarioPD := CalcDate(diaOrigemPD, 1);
+          ultimoDiaIntermediarioPD := CalcDate(dataCandle, -1);
+          if primeiroDiaIntermediarioPD <= ultimoDiaIntermediarioPD then
+          begin
+            HorizontalLineCustom(centroPremiumPD, CorZonaPremium, 1, 0, "", 8, 1,
+              primeiroDiaIntermediarioPD, ultimoDiaIntermediarioPD, meiaAlturaPD);
+            HorizontalLineCustom(centroEquilibriumPD, CorZonaEquilibrium, 1, 0, "", 8, 1,
+              primeiroDiaIntermediarioPD, ultimoDiaIntermediarioPD, meiaAlturaPD);
+            HorizontalLineCustom(centroDiscountPD, CorZonaDiscount, 1, 0, "", 8, 1,
+              primeiroDiaIntermediarioPD, ultimoDiaIntermediarioPD, meiaAlturaPD);
+          end;
+
+          HorizontalLineCustom(centroPremiumPD, CorZonaPremium, 1, 0, "", 8, 1,
+            dataCandle, dataCandle, meiaAlturaPD, 0, horaCandle);
+          HorizontalLineCustom(centroEquilibriumPD, CorZonaEquilibrium, 1, 0, "", 8, 1,
+            dataCandle, dataCandle, meiaAlturaPD, 0, horaCandle);
+          HorizontalLineCustom(centroDiscountPD, CorZonaDiscount, 1, 0, "", 8, 1,
+            dataCandle, dataCandle, meiaAlturaPD, 0, horaCandle);
+        end;
+      end;
+
+      // O Pine desenha antes de aplicar os pivos confirmados nesta barra.
+      if (CurrentBar >= periodo) and (perna <> perna[1]) then
+      begin
+        if perna = 1 then
+          fundoPD := nivelFundo
+        else
+          topoPD := nivelTopo;
+        diaOrigemPD := dataCandle[periodo];
+        horaOrigemPD := horaCandle[periodo];
+      end;
+    end;
+  end;
+
+  if (MostrarEstruturaInterna or calculaBlocosInternos) and (CurrentBar >= JanelaInterna) then
+  begin
+    if High[JanelaInterna] > Highest(High, JanelaInterna) then
+      pernaInterna := 0
+    else if Low[JanelaInterna] < Lowest(Low, JanelaInterna) then
+      pernaInterna := 1;
+
+    if pernaInterna <> pernaInterna[1] then
+    begin
+      if pernaInterna = 1 then
+      begin
+        fundoInterno := Low[JanelaInterna];
+        barraFundoInterno := CurrentBar - JanelaInterna;
+        temFundoInterno := True;
+        fundoInternoRompido := False;
+      end
+      else
+      begin
+        topoInterno := High[JanelaInterna];
+        barraTopoInterno := CurrentBar - JanelaInterna;
+        temTopoInterno := True;
+        topoInternoRompido := False;
+      end;
+    end;
+
+    // A posicao dos parenteses segue a expressao do Pine fornecido.
+    pavioSuperior := High - Max(Close, Open);
+    medidaInferior := Min(Close, Open - Low);
+
+    rompeTopoInterno := temTopoInterno and temTopoInterno[1] and (not topoInternoRompido)
+      and temTopo and (topoInterno <> nivelTopo)
+      and (Close > topoInterno) and (Close[1] <= topoInterno[1])
+      and ((not FiltroConfluenciaInterna) or (pavioSuperior > medidaInferior));
+    if rompeTopoInterno then
+    begin
+      if (ModoFaixaOB = 0) and MostrarEstruturaInterna then
+      begin
+        if viesInterno = -1 then
+          PlotText("CHoCH interno alta", clLime, 3, 8, topoInterno)
+        else
+          PlotText("BOS interno alta", clLime, 3, 8, topoInterno);
+      end;
+      topoInternoRompido := True;
+      viesInterno := 1;
+    end;
+
+    rompeFundoInterno := temFundoInterno and temFundoInterno[1] and (not fundoInternoRompido)
+      and temFundo and (fundoInterno <> nivelFundo)
+      and (Close < fundoInterno) and (Close[1] >= fundoInterno[1])
+      and ((not FiltroConfluenciaInterna) or (pavioSuperior < medidaInferior));
+    if rompeFundoInterno then
+    begin
+      if (ModoFaixaOB = 0) and MostrarEstruturaInterna then
+      begin
+        if viesInterno = 1 then
+          PlotText("CHoCH interno baixa", clRed, 3, 8, fundoInterno)
+        else
+          PlotText("BOS interno baixa", clRed, 3, 8, fundoInterno);
+      end;
+      fundoInternoRompido := True;
+      viesInterno := -1;
+    end;
+  end;
+
+  if rompeTopo then
+  begin
+    if ModoFaixaOB = 0 then
+    begin
+      Plot(nivelTopo);
+      SetPlotColor(1, clGreen);
+      if vies = -1 then
+        PlotText("CHoCH alta", clGreen, 3, 8, nivelTopo)
+      else
+        PlotText("BOS alta", clGreen, 3, 8, nivelTopo);
+    end;
+    topoRompido := True;
+    vies := 1;
+  end
+  else if ModoFaixaOB = 0 then
+    NoPlot(1);
+
+  if rompeFundo then
+  begin
+    if ModoFaixaOB = 0 then
+    begin
+      Plot2(nivelFundo);
+      SetPlotColor(2, clRed);
+      if vies = 1 then
+        PlotText("CHoCH baixa", clRed, 3, 8, nivelFundo)
+      else
+        PlotText("BOS baixa", clRed, 3, 8, nivelFundo);
+    end;
+    fundoRompido := True;
+    vies := -1;
+  end
+  else if ModoFaixaOB = 0 then
+    NoPlot(2);
+
+  // Exibir o ultimo nivel confirmado de cada lado, inclusive apos o rompimento.
+  if (ModoFaixaOB = 0) and MostrarPivos and temTopo then
+  begin
+    Plot3(nivelTopo);
+    SetPlotColor(3, clRed);
+    SetPlotWidth(3, 2);
+  end
+  else if ModoFaixaOB = 0 then
+    NoPlot(3);
+
+  if (ModoFaixaOB = 0) and MostrarPivos and temFundo then
+  begin
+    Plot4(nivelFundo);
+    SetPlotColor(4, clLime);
+    SetPlotWidth(4, 2);
+  end
+  else if ModoFaixaOB = 0 then
+    NoPlot(4);
+
+  if calculaBlocosInternos or calculaBlocosSwing or calculaEQ then
+  begin
+    trAtual := High - Low;
+    somaTR := 0;
+    if CurrentBar > 0 then
+    begin
+      trAtual := Max(trAtual, Max(Abs(High - Close[1]), Abs(Low - Close[1])));
+      somaTR := somaTR[1] + trAtual;
+    end;
+
+    // ATR de Wilder com semente SMA. A media cumulativa ignora o TR da barra inicial.
+    atrWilder := 0;
+    if CurrentBar = 199 then
+      atrWilder := (somaTR + trAtual[199]) / 200
+    else if CurrentBar > 199 then
+      atrWilder := (199 * atrWilder[1] + trAtual) / 200;
+  end;
+
+  if calculaEQ then
+  begin
+    janelaEQ := BarrasConfirmacaoEQ;
+    if janelaEQ < 1 then
+      janelaEQ := 1;
+    toleranciaEQ := Max(0, Min(LimiarEQ, 0.5)) * atrWilder;
+
+    if CurrentBar = 0 then
+    begin
+      pernaEQ := 0;
+      temTopoEQ := False;
+      temFundoEQ := False;
+      topoEQ := 0;
+      fundoEQ := 0;
+    end
+    else
+    begin
+      pernaEQ := pernaEQ[1];
+      temTopoEQ := temTopoEQ[1];
+      temFundoEQ := temFundoEQ[1];
+      topoEQ := topoEQ[1];
+      fundoEQ := fundoEQ[1];
+    end;
+
+    if CurrentBar >= janelaEQ then
+    begin
+      if High[janelaEQ] > Highest(High, janelaEQ) then
+        pernaEQ := 0
+      else if Low[janelaEQ] < Lowest(Low, janelaEQ) then
+        pernaEQ := 1;
+
+      if pernaEQ <> pernaEQ[1] then
+      begin
+        if pernaEQ = 1 then
+        begin
+          if temFundoEQ and (Abs(Low[janelaEQ] - fundoEQ) < toleranciaEQ) then
+            PlotText("EQL", clLime, 3, 8, Low[janelaEQ]);
+          fundoEQ := Low[janelaEQ];
+          temFundoEQ := True;
+        end
+        else
+        begin
+          if temTopoEQ and (Abs(High[janelaEQ] - topoEQ) < toleranciaEQ) then
+            PlotText("EQH", clRed, 3, 8, High[janelaEQ]);
+          topoEQ := High[janelaEQ];
+          temTopoEQ := True;
+        end;
+      end;
+    end;
+  end;
+
+  if calculaBlocosInternos or calculaBlocosSwing then
+  begin
+    volatilidade := atrWilder;
+    if (not UsarATRBlocos) and (CurrentBar > 0) then
+      volatilidade := somaTR / CurrentBar;
+
+    maxBloco := High;
+    minBloco := Low;
+    if ((UsarATRBlocos and (CurrentBar >= 199)) or
+        ((not UsarATRBlocos) and (CurrentBar > 0))) and
+        ((High - Low) >= (2 * volatilidade)) then
+    begin
+      maxBloco := Low;
+      minBloco := High;
+    end;
+
+    // Cada evento registra a origem escolhida, como deslocamento da barra de rompimento.
+    for evento := 1 to 4 do
+    begin
+      buscas[evento] := 0;
+      origens[evento] := 0;
+    end;
+    if calculaBlocosInternos and rompeTopoInterno then
+      buscas[1] := CurrentBar - barraTopoInterno;
+    if calculaBlocosInternos and rompeFundoInterno then
+      buscas[2] := CurrentBar - barraFundoInterno;
+    if calculaBlocosSwing and rompeTopo then
+      buscas[3] := CurrentBar - barraTopo;
+    if calculaBlocosSwing and rompeFundo then
+      buscas[4] := CurrentBar - barraFundo;
+
+    for evento := 1 to 4 do
+    begin
+      janelaBusca := buscas[evento];
+      if janelaBusca > 0 then
+      begin
+        origem := janelaBusca;
+        lado := 1;
+        if (evento = 2) or (evento = 4) then
+          lado := -1;
+
+        if lado = 1 then
+          extremo := -minBloco[origem]
+        else
+          extremo := maxBloco[origem];
+
+        // Examinar do candle mais antigo ao mais recente. Empates preservam o primeiro.
+        for deslocamento := janelaBusca - 1 downto 1 do
+        begin
+          if lado = 1 then
+            comparar := -minBloco[deslocamento]
+          else
+            comparar := maxBloco[deslocamento];
+
+          if comparar > extremo then
+          begin
+            extremo := comparar;
+            origem := deslocamento;
+          end;
+        end;
+
+        origens[evento] := origem;
+      end;
+    end;
+    // Cada candle refaz sua lista a partir da barra anterior, inclusive em novos ticks.
+    if CurrentBar = 0 then
+    begin
+      for leitura := 0 to 2 do
+        carimbosBlocos[leitura] := 0;
+    end;
+    quadroAtual := Mod(CurrentBar, 3);
+    quadroAnterior := Mod(CurrentBar + 2, 3);
+
+    primeiroGrupo := 0;
+    ultimoGrupo := 1;
+    if not calculaBlocosInternos then
+      primeiroGrupo := 1;
+    if not calculaBlocosSwing then
+      ultimoGrupo := 0;
+
+    if (ModoFaixaOB = 0) and LastBarOnChart then
+      for posicaoFaixa := 1 to TotalFaixasVisuais do
+        faixasVisiveis[posicaoFaixa] := False;
+
+    precoAlta := High;
+    precoBaixa := Low;
+    if MitigarPorFechamento then
+    begin
+      precoAlta := Close;
+      precoBaixa := precoAlta;
+    end;
+
+    for grupo := primeiroGrupo to ultimoGrupo do
+    begin
+      listaAtual := quadroAtual * 2 + grupo;
+      listaAnterior := quadroAnterior * 2 + grupo;
+      baseAtual := listaAtual * CapacidadeBlocos;
+      baseAnterior := listaAnterior * CapacidadeBlocos;
+      primeiroEvento := grupo * 2 + 1;
+
+      totalAnterior := 0;
+      if (CurrentBar > 0) and (carimbosBlocos[quadroAnterior] = CurrentBar) then
+        totalAnterior := quantidadesBlocos[listaAnterior];
+
+      // O Pine limita a lista antes de verificar a mitigacao da barra.
+      descarte := totalAnterior - CapacidadeBlocos;
+      if origens[primeiroEvento] > 0 then
+        descarte := descarte + 1;
+      if origens[primeiroEvento + 1] > 0 then
+        descarte := descarte + 1;
+      if descarte < 0 then
+        descarte := 0;
+
+      total := 0;
+      if totalAnterior > descarte then
+        for leitura := descarte + 1 to totalAnterior do
+        begin
+          indiceAnterior := baseAnterior + leitura;
+          lado := direcoes[indiceAnterior];
+          if ((lado = 1) and (precoBaixa >= inferioresBlocos[indiceAnterior]))
+            or ((lado = -1) and (precoAlta <= superioresBlocos[indiceAnterior])) then
+          begin
+            total := total + 1;
+            indiceAtual := baseAtual + total;
+            direcoes[indiceAtual] := lado;
+            datasBlocos[indiceAtual] := datasBlocos[indiceAnterior];
+            horasBlocos[indiceAtual] := horasBlocos[indiceAnterior];
+            criacoesBlocos[indiceAtual] := criacoesBlocos[indiceAnterior];
+            superioresBlocos[indiceAtual] := superioresBlocos[indiceAnterior];
+            inferioresBlocos[indiceAtual] := inferioresBlocos[indiceAnterior];
+          end
+          else if calculaBreaker and (grupo = 1) and (lado = ladoOrigemBreaker) then
+          begin
+            quantidadesOBRemovidos[quadroOBRemovido] := quantidadesOBRemovidos[quadroOBRemovido] + 1;
+            indiceOBRemovido := quadroOBRemovido * CapacidadeBlocos + quantidadesOBRemovidos[quadroOBRemovido];
+            criacoesOBRemovidos[indiceOBRemovido] := criacoesBlocos[indiceAnterior];
+            inferioresOBRemovidos[indiceOBRemovido] := Min(inferioresBlocos[indiceAnterior], superioresBlocos[indiceAnterior]);
+            superioresOBRemovidos[indiceOBRemovido] := Max(inferioresBlocos[indiceAnterior], superioresBlocos[indiceAnterior]);
+          end;
+        end;
+
+      for evento := primeiroEvento to primeiroEvento + 1 do
+      begin
+        origem := origens[evento];
+        if (origem > 0) and (origem <= CurrentBar) then
+        begin
+          limiteSuperior := maxBloco[origem];
+          limiteInferior := minBloco[origem];
+          lado := 1;
+          if evento > primeiroEvento then
+            lado := -1;
+          if ((lado = 1) and (precoBaixa >= limiteInferior))
+            or ((lado = -1) and (precoAlta <= limiteSuperior)) then
+          begin
+            total := total + 1;
+            indiceAtual := baseAtual + total;
+            direcoes[indiceAtual] := lado;
+            datasBlocos[indiceAtual] := dataCandle[origem];
+            horasBlocos[indiceAtual] := horaCandle[origem];
+            criacoesBlocos[indiceAtual] := CurrentBar;
+            superioresBlocos[indiceAtual] := limiteSuperior;
+            inferioresBlocos[indiceAtual] := limiteInferior;
+          end;
+        end;
+      end;
+      quantidadesBlocos[listaAtual] := total;
+
+      if (ModoFaixaOB = 0) and LastBarOnChart then
+      begin
+        quantidade := QuantidadeBlocosInternos;
+        if grupo = 1 then
+          quantidade := QuantidadeBlocosSwing;
+        if quantidade < 1 then
+          quantidade := 1;
+        if quantidade > LimiteFaixasPorGrupo then
+          quantidade := LimiteFaixasPorGrupo;
+        if quantidade > total then
+          quantidade := total;
+
+        if quantidade > 0 then
+          for leitura := total downto total - quantidade + 1 do
+          begin
+            indiceAtual := baseAtual + leitura;
+            cor := RGB(49, 121, 245);
+            if direcoes[indiceAtual] = -1 then
+              cor := RGB(247, 86, 100);
+
+            limiteSuperior := superioresBlocos[indiceAtual];
+            limiteInferior := inferioresBlocos[indiceAtual];
+            posicaoFaixa := grupo * LimiteFaixasPorGrupo + total - leitura + 1;
+            centrosVisuais[posicaoFaixa] := (limiteSuperior + limiteInferior) / 2;
+            alturasVisuais[posicaoFaixa] := Abs(limiteSuperior - limiteInferior) / 2;
+            origensVisuais[posicaoFaixa] := datasBlocos[indiceAtual];
+            coresVisuais[posicaoFaixa] := cor;
+            faixasVisiveis[posicaoFaixa] := True;
+          end
+        else if grupo = 1 then
+        begin
+          PlotText("Sem OB swing ativo", clSilver, 2, 8);
+        end
+        else
+          PlotText("Sem OB interno ativo", clSilver, 0, 8);
+      end
+      else if (ModoFaixaOB > 0) and (total > 0) then
+      begin
+        grupoFaixa := 1;
+        if ModoFaixaOB >= 3 then
+          grupoFaixa := 0;
+        if grupo = grupoFaixa then
+        begin
+          ladoFaixa := 1;
+          if (ModoFaixaOB = 2) or (ModoFaixaOB = 4) then
+            ladoFaixa := -1;
+          ordemFaixa := OrdemFaixaOB;
+          if ordemFaixa < 1 then
+            ordemFaixa := 1;
+          encontradas := 0;
+          for leitura := total downto 1 do
+          begin
+            indiceAtual := baseAtual + leitura;
+            if direcoes[indiceAtual] = ladoFaixa then
+            begin
+              encontradas := encontradas + 1;
+              if encontradas = ordemFaixa then
+              begin
+                faixaSuperior := Max(superioresBlocos[indiceAtual], inferioresBlocos[indiceAtual]);
+                faixaInferior := Min(superioresBlocos[indiceAtual], inferioresBlocos[indiceAtual]);
+                criacaoFaixa := criacoesBlocos[indiceAtual];
+                dataFaixa := datasBlocos[indiceAtual];
+                horaFaixa := horasBlocos[indiceAtual];
+                faixaSelecionada := True;
+              end;
+            end;
+          end;
+        end;
+      end;
+    end;
+    carimbosBlocos[quadroAtual] := CurrentBar + 1;
+
+    if (ModoFaixaOB = 0) and LastBarOnChart then
+    begin
+      // Cada faixa tem sua propria chamada para evitar substituir o desenho anterior.
+      if faixasVisiveis[1] then
+        HorizontalLineCustom(centrosVisuais[1], coresVisuais[1], 1, 0, "OB interno 1", 8, 1,
+          origensVisuais[1], 0, alturasVisuais[1]);
+      if faixasVisiveis[2] then
+        HorizontalLineCustom(centrosVisuais[2], coresVisuais[2], 1, 0, "OB interno 2", 8, 1,
+          origensVisuais[2], 0, alturasVisuais[2]);
+      if faixasVisiveis[3] then
+        HorizontalLineCustom(centrosVisuais[3], coresVisuais[3], 1, 0, "OB interno 3", 8, 1,
+          origensVisuais[3], 0, alturasVisuais[3]);
+      if faixasVisiveis[4] then
+        HorizontalLineCustom(centrosVisuais[4], coresVisuais[4], 1, 0, "OB interno 4", 8, 1,
+          origensVisuais[4], 0, alturasVisuais[4]);
+      if faixasVisiveis[5] then
+        HorizontalLineCustom(centrosVisuais[5], coresVisuais[5], 1, 0, "OB interno 5", 8, 1,
+          origensVisuais[5], 0, alturasVisuais[5]);
+      if faixasVisiveis[6] then
+        HorizontalLineCustom(centrosVisuais[6], coresVisuais[6], 1, 0, "OB interno 6", 8, 1,
+          origensVisuais[6], 0, alturasVisuais[6]);
+      if faixasVisiveis[7] then
+        HorizontalLineCustom(centrosVisuais[7], coresVisuais[7], 1, 0, "OB interno 7", 8, 1,
+          origensVisuais[7], 0, alturasVisuais[7]);
+      if faixasVisiveis[8] then
+        HorizontalLineCustom(centrosVisuais[8], coresVisuais[8], 1, 0, "OB interno 8", 8, 1,
+          origensVisuais[8], 0, alturasVisuais[8]);
+      if faixasVisiveis[9] then
+        HorizontalLineCustom(centrosVisuais[9], coresVisuais[9], 1, 0, "OB interno 9", 8, 1,
+          origensVisuais[9], 0, alturasVisuais[9]);
+      if faixasVisiveis[10] then
+        HorizontalLineCustom(centrosVisuais[10], coresVisuais[10], 1, 0, "OB interno 10", 8, 1,
+          origensVisuais[10], 0, alturasVisuais[10]);
+      if faixasVisiveis[11] then
+        HorizontalLineCustom(centrosVisuais[11], coresVisuais[11], 1, 0, "OB interno 11", 8, 1,
+          origensVisuais[11], 0, alturasVisuais[11]);
+      if faixasVisiveis[12] then
+        HorizontalLineCustom(centrosVisuais[12], coresVisuais[12], 1, 0, "OB interno 12", 8, 1,
+          origensVisuais[12], 0, alturasVisuais[12]);
+      if faixasVisiveis[13] then
+        HorizontalLineCustom(centrosVisuais[13], coresVisuais[13], 1, 0, "OB interno 13", 8, 1,
+          origensVisuais[13], 0, alturasVisuais[13]);
+      if faixasVisiveis[14] then
+        HorizontalLineCustom(centrosVisuais[14], coresVisuais[14], 1, 0, "OB interno 14", 8, 1,
+          origensVisuais[14], 0, alturasVisuais[14]);
+      if faixasVisiveis[15] then
+        HorizontalLineCustom(centrosVisuais[15], coresVisuais[15], 1, 0, "OB interno 15", 8, 1,
+          origensVisuais[15], 0, alturasVisuais[15]);
+      if faixasVisiveis[16] then
+        HorizontalLineCustom(centrosVisuais[16], coresVisuais[16], 1, 0, "OB interno 16", 8, 1,
+          origensVisuais[16], 0, alturasVisuais[16]);
+      if faixasVisiveis[17] then
+        HorizontalLineCustom(centrosVisuais[17], coresVisuais[17], 1, 0, "OB interno 17", 8, 1,
+          origensVisuais[17], 0, alturasVisuais[17]);
+      if faixasVisiveis[18] then
+        HorizontalLineCustom(centrosVisuais[18], coresVisuais[18], 1, 0, "OB interno 18", 8, 1,
+          origensVisuais[18], 0, alturasVisuais[18]);
+      if faixasVisiveis[19] then
+        HorizontalLineCustom(centrosVisuais[19], coresVisuais[19], 1, 0, "OB interno 19", 8, 1,
+          origensVisuais[19], 0, alturasVisuais[19]);
+      if faixasVisiveis[20] then
+        HorizontalLineCustom(centrosVisuais[20], coresVisuais[20], 1, 0, "OB interno 20", 8, 1,
+          origensVisuais[20], 0, alturasVisuais[20]);
+
+      if faixasVisiveis[21] then
+        HorizontalLineCustom(centrosVisuais[21], coresVisuais[21], 1, 0, "OB swing 1", 8, 1,
+          origensVisuais[21], 0, alturasVisuais[21]);
+      if faixasVisiveis[22] then
+        HorizontalLineCustom(centrosVisuais[22], coresVisuais[22], 1, 0, "OB swing 2", 8, 1,
+          origensVisuais[22], 0, alturasVisuais[22]);
+      if faixasVisiveis[23] then
+        HorizontalLineCustom(centrosVisuais[23], coresVisuais[23], 1, 0, "OB swing 3", 8, 1,
+          origensVisuais[23], 0, alturasVisuais[23]);
+      if faixasVisiveis[24] then
+        HorizontalLineCustom(centrosVisuais[24], coresVisuais[24], 1, 0, "OB swing 4", 8, 1,
+          origensVisuais[24], 0, alturasVisuais[24]);
+      if faixasVisiveis[25] then
+        HorizontalLineCustom(centrosVisuais[25], coresVisuais[25], 1, 0, "OB swing 5", 8, 1,
+          origensVisuais[25], 0, alturasVisuais[25]);
+      if faixasVisiveis[26] then
+        HorizontalLineCustom(centrosVisuais[26], coresVisuais[26], 1, 0, "OB swing 6", 8, 1,
+          origensVisuais[26], 0, alturasVisuais[26]);
+      if faixasVisiveis[27] then
+        HorizontalLineCustom(centrosVisuais[27], coresVisuais[27], 1, 0, "OB swing 7", 8, 1,
+          origensVisuais[27], 0, alturasVisuais[27]);
+      if faixasVisiveis[28] then
+        HorizontalLineCustom(centrosVisuais[28], coresVisuais[28], 1, 0, "OB swing 8", 8, 1,
+          origensVisuais[28], 0, alturasVisuais[28]);
+      if faixasVisiveis[29] then
+        HorizontalLineCustom(centrosVisuais[29], coresVisuais[29], 1, 0, "OB swing 9", 8, 1,
+          origensVisuais[29], 0, alturasVisuais[29]);
+      if faixasVisiveis[30] then
+        HorizontalLineCustom(centrosVisuais[30], coresVisuais[30], 1, 0, "OB swing 10", 8, 1,
+          origensVisuais[30], 0, alturasVisuais[30]);
+      if faixasVisiveis[31] then
+        HorizontalLineCustom(centrosVisuais[31], coresVisuais[31], 1, 0, "OB swing 11", 8, 1,
+          origensVisuais[31], 0, alturasVisuais[31]);
+      if faixasVisiveis[32] then
+        HorizontalLineCustom(centrosVisuais[32], coresVisuais[32], 1, 0, "OB swing 12", 8, 1,
+          origensVisuais[32], 0, alturasVisuais[32]);
+      if faixasVisiveis[33] then
+        HorizontalLineCustom(centrosVisuais[33], coresVisuais[33], 1, 0, "OB swing 13", 8, 1,
+          origensVisuais[33], 0, alturasVisuais[33]);
+      if faixasVisiveis[34] then
+        HorizontalLineCustom(centrosVisuais[34], coresVisuais[34], 1, 0, "OB swing 14", 8, 1,
+          origensVisuais[34], 0, alturasVisuais[34]);
+      if faixasVisiveis[35] then
+        HorizontalLineCustom(centrosVisuais[35], coresVisuais[35], 1, 0, "OB swing 15", 8, 1,
+          origensVisuais[35], 0, alturasVisuais[35]);
+      if faixasVisiveis[36] then
+        HorizontalLineCustom(centrosVisuais[36], coresVisuais[36], 1, 0, "OB swing 16", 8, 1,
+          origensVisuais[36], 0, alturasVisuais[36]);
+      if faixasVisiveis[37] then
+        HorizontalLineCustom(centrosVisuais[37], coresVisuais[37], 1, 0, "OB swing 17", 8, 1,
+          origensVisuais[37], 0, alturasVisuais[37]);
+      if faixasVisiveis[38] then
+        HorizontalLineCustom(centrosVisuais[38], coresVisuais[38], 1, 0, "OB swing 18", 8, 1,
+          origensVisuais[38], 0, alturasVisuais[38]);
+      if faixasVisiveis[39] then
+        HorizontalLineCustom(centrosVisuais[39], coresVisuais[39], 1, 0, "OB swing 19", 8, 1,
+          origensVisuais[39], 0, alturasVisuais[39]);
+      if faixasVisiveis[40] then
+        HorizontalLineCustom(centrosVisuais[40], coresVisuais[40], 1, 0, "OB swing 20", 8, 1,
+          origensVisuais[40], 0, alturasVisuais[40]);
+    end;
+  end;
+
+  if (ModoFaixaOB >= 1) and (ModoFaixaOB <= 4) then
+  begin
+    cor := RGB(49, 121, 245);
+    if (ModoFaixaOB = 2) or (ModoFaixaOB = 4) then
+      cor := RGB(247, 86, 100);
+
+    if AncorarFaixaOB then
+    begin
+      if LastBarOnChart and faixaSelecionada then
+      begin
+        centroBloco := (faixaSuperior + faixaInferior) / 2;
+        meiaAlturaBloco := (faixaSuperior - faixaInferior) / 2;
+        if horaFaixa = 0 then
+          HorizontalLineCustom(centroBloco, cor, 1, 0, "", 8, 1,
+            dataFaixa, 0, meiaAlturaBloco)
+        else
+        begin
+          // Aplicar o horario somente ao dia de origem. Nos demais dias, usar a sessao toda.
+          HorizontalLineCustom(centroBloco, cor, 1, 0, "", 8, 1,
+            dataFaixa, dataFaixa, meiaAlturaBloco, horaFaixa, 2359);
+          if dataCandle > dataFaixa then
+            HorizontalLineCustom(centroBloco, cor, 1, 0, "", 8, 1,
+              CalcDate(dataFaixa, 1), 0, meiaAlturaBloco);
+        end;
+      end;
+    end
+    else if faixaSelecionada and ((not faixaSelecionada[1]) or (criacaoFaixa = criacaoFaixa[1])) then
+    begin
+      // Um intervalo sem plot separa blocos diferentes no preenchimento entre linhas.
+      Plot(faixaSuperior);
+      Plot2(faixaInferior);
+      SetPlotColor(1, cor);
+      SetPlotColor(2, cor);
+    end
+    else
+    begin
+      NoPlot(1);
+      NoPlot(2);
+    end;
+  end;
+
+  if exibeFVG or calculaBreaker then
+  begin
+    ladoNovoFVG := 0;
+    retornoFVG := 0;
+    somaRetornosFVG := 0;
+    limiarFVG := 0;
+    if CurrentBar > 0 then
+    begin
+      if Open[1] <> 0 then
+        retornoFVG := (Close[1] - Open[1]) / Open[1];
+      somaRetornosFVG := somaRetornosFVG[1] + Abs(retornoFVG);
+      if FiltroAutomaticoFVG then
+        limiarFVG := 2 * somaRetornosFVG / CurrentBar;
+    end;
+
+    if CurrentBar >= 2 then
+    begin
+      if (Low > High[2]) and (Close[1] > High[2]) and (retornoFVG > limiarFVG) then
+        ladoNovoFVG := 1
+      else if (High < Low[2]) and (Close[1] < Low[2]) and (-retornoFVG > limiarFVG) then
+        ladoNovoFVG := -1;
+    end;
+  end;
+
+  if exibeFVG then
+  begin
+    extensaoEfetivaFVG := ExtensaoFVG;
+    if extensaoEfetivaFVG < 0 then
+      extensaoEfetivaFVG := 0;
+
+    // Preservar a barra anterior durante a reavaliacao da barra atual.
+    if CurrentBar = 0 then
+      for leituraFVG := 0 to 2 do
+        carimbosFVG[leituraFVG] := 0;
+    quadroFVG := Mod(CurrentBar, 3);
+    quadroAnteriorFVG := Mod(CurrentBar + 2, 3);
+    baseFVG := quadroFVG * CapacidadeFVG;
+    baseAnteriorFVG := quadroAnteriorFVG * CapacidadeFVG;
+    totalAnteriorFVG := 0;
+    if (CurrentBar > 0) and (carimbosFVG[quadroAnteriorFVG] = CurrentBar) then
+      totalAnteriorFVG := quantidadesFVG[quadroAnteriorFVG];
+
+    // Guardar os sobreviventes do mais recente ao mais antigo, reservando a primeira posicao para o novo gap.
+    reservaFVG := 0;
+    if ladoNovoFVG <> 0 then
+      reservaFVG := 1;
+    totalFVG := reservaFVG;
+    if totalAnteriorFVG > 0 then
+      for leituraFVG := 1 to totalAnteriorFVG do
+      begin
+        entradaFVG := baseAnteriorFVG + leituraFVG;
+        if (totalFVG < CapacidadeFVG) and
+          (((direcoesFVG[entradaFVG] = 1) and (Low >= inferioresFVG[entradaFVG]))
+          or ((direcoesFVG[entradaFVG] = -1) and (High <= superioresFVG[entradaFVG]))) then
+        begin
+          totalFVG := totalFVG + 1;
+          saidaFVG := baseFVG + totalFVG;
+          direcoesFVG[saidaFVG] := direcoesFVG[entradaFVG];
+          formacoesFVG[saidaFVG] := formacoesFVG[entradaFVG];
+          inferioresFVG[saidaFVG] := inferioresFVG[entradaFVG];
+          superioresFVG[saidaFVG] := superioresFVG[entradaFVG];
+          datasOrigemFVG[saidaFVG] := datasOrigemFVG[entradaFVG];
+          horasOrigemFVG[saidaFVG] := horasOrigemFVG[entradaFVG];
+          datasDireitaFVG[saidaFVG] := datasDireitaFVG[entradaFVG];
+          horasDireitaFVG[saidaFVG] := horasDireitaFVG[entradaFVG];
+          if CurrentBar - formacoesFVG[saidaFVG] <= extensaoEfetivaFVG then
+          begin
+            datasDireitaFVG[saidaFVG] := dataCandle;
+            horasDireitaFVG[saidaFVG] := horaCandle;
+          end;
+        end;
+      end;
+
+    if ladoNovoFVG <> 0 then
+    begin
+      saidaFVG := baseFVG + 1;
+      direcoesFVG[saidaFVG] := ladoNovoFVG;
+      formacoesFVG[saidaFVG] := CurrentBar;
+      datasOrigemFVG[saidaFVG] := dataCandle[1];
+      horasOrigemFVG[saidaFVG] := horaCandle[1];
+      datasDireitaFVG[saidaFVG] := dataCandle;
+      horasDireitaFVG[saidaFVG] := horaCandle;
+      if ladoNovoFVG = 1 then
+      begin
+        inferioresFVG[saidaFVG] := High[2];
+        superioresFVG[saidaFVG] := Low;
+      end
+      else
+      begin
+        inferioresFVG[saidaFVG] := High;
+        superioresFVG[saidaFVG] := Low[2];
+      end;
+    end;
+    quantidadesFVG[quadroFVG] := totalFVG;
+    carimbosFVG[quadroFVG] := CurrentBar + 1;
+
+    if LastBarOnChart then
+    begin
+      visiveisFVG := totalFVG;
+      if visiveisFVG > LimiteFaixasFVG then
+        visiveisFVG := LimiteFaixasFVG;
+      if visiveisFVG > 0 then
+        for posicaoFVG := 1 to visiveisFVG do
+        begin
+          saidaFVG := baseFVG + posicaoFVG;
+          centrosFVG[posicaoFVG] := (superioresFVG[saidaFVG] + inferioresFVG[saidaFVG]) / 2;
+          alturasFVG[posicaoFVG] := (superioresFVG[saidaFVG] - inferioresFVG[saidaFVG]) / 2;
+          coresFVG[posicaoFVG] := CorFVGAlta;
+          if direcoesFVG[saidaFVG] = -1 then
+            coresFVG[posicaoFVG] := CorFVGBaixa;
+
+          diasInicioFVG[posicaoFVG] := datasOrigemFVG[saidaFVG];
+          horasInicioFVG[posicaoFVG] := horasOrigemFVG[saidaFVG];
+          diasFimFVG[posicaoFVG] := datasDireitaFVG[saidaFVG];
+          horasFimFVG[posicaoFVG] := horasDireitaFVG[saidaFVG];
+          diasFimPrimeiroTrechoFVG[posicaoFVG] := diasFimFVG[posicaoFVG];
+          horasFimPrimeiroTrechoFVG[posicaoFVG] := horasFimFVG[posicaoFVG];
+          temDiasIntermediariosFVG[posicaoFVG] := False;
+
+          // Restringir o horario apenas nas duas datas que limitam a faixa.
+          if diasInicioFVG[posicaoFVG] <> diasFimFVG[posicaoFVG] then
+          begin
+            diasFimPrimeiroTrechoFVG[posicaoFVG] := diasInicioFVG[posicaoFVG];
+            horasFimPrimeiroTrechoFVG[posicaoFVG] := 2359;
+            primeirosDiasIntermediariosFVG[posicaoFVG] := CalcDate(diasInicioFVG[posicaoFVG], 1);
+            ultimosDiasIntermediariosFVG[posicaoFVG] := CalcDate(diasFimFVG[posicaoFVG], -1);
+            temDiasIntermediariosFVG[posicaoFVG] :=
+              primeirosDiasIntermediariosFVG[posicaoFVG] <= ultimosDiasIntermediariosFVG[posicaoFVG];
+          end;
+        end;
+
+      // Cada trecho tem uma chamada propria, como no desenho dos Order Blocks.
+      if 1 <= visiveisFVG then
+      begin
+        HorizontalLineCustom(centrosFVG[1], coresFVG[1], 1, 0, "FVG", 8, 1,
+          diasInicioFVG[1], diasFimPrimeiroTrechoFVG[1], alturasFVG[1],
+          horasInicioFVG[1], horasFimPrimeiroTrechoFVG[1]);
+        if temDiasIntermediariosFVG[1] then
+          HorizontalLineCustom(centrosFVG[1], coresFVG[1], 1, 0, "", 8, 1,
+            primeirosDiasIntermediariosFVG[1], ultimosDiasIntermediariosFVG[1], alturasFVG[1]);
+        if diasInicioFVG[1] <> diasFimFVG[1] then
+          HorizontalLineCustom(centrosFVG[1], coresFVG[1], 1, 0, "", 8, 1,
+            diasFimFVG[1], diasFimFVG[1], alturasFVG[1], 0, horasFimFVG[1]);
+      end;
+      if 2 <= visiveisFVG then
+      begin
+        HorizontalLineCustom(centrosFVG[2], coresFVG[2], 1, 0, "FVG", 8, 1,
+          diasInicioFVG[2], diasFimPrimeiroTrechoFVG[2], alturasFVG[2],
+          horasInicioFVG[2], horasFimPrimeiroTrechoFVG[2]);
+        if temDiasIntermediariosFVG[2] then
+          HorizontalLineCustom(centrosFVG[2], coresFVG[2], 1, 0, "", 8, 1,
+            primeirosDiasIntermediariosFVG[2], ultimosDiasIntermediariosFVG[2], alturasFVG[2]);
+        if diasInicioFVG[2] <> diasFimFVG[2] then
+          HorizontalLineCustom(centrosFVG[2], coresFVG[2], 1, 0, "", 8, 1,
+            diasFimFVG[2], diasFimFVG[2], alturasFVG[2], 0, horasFimFVG[2]);
+      end;
+      if 3 <= visiveisFVG then
+      begin
+        HorizontalLineCustom(centrosFVG[3], coresFVG[3], 1, 0, "FVG", 8, 1,
+          diasInicioFVG[3], diasFimPrimeiroTrechoFVG[3], alturasFVG[3],
+          horasInicioFVG[3], horasFimPrimeiroTrechoFVG[3]);
+        if temDiasIntermediariosFVG[3] then
+          HorizontalLineCustom(centrosFVG[3], coresFVG[3], 1, 0, "", 8, 1,
+            primeirosDiasIntermediariosFVG[3], ultimosDiasIntermediariosFVG[3], alturasFVG[3]);
+        if diasInicioFVG[3] <> diasFimFVG[3] then
+          HorizontalLineCustom(centrosFVG[3], coresFVG[3], 1, 0, "", 8, 1,
+            diasFimFVG[3], diasFimFVG[3], alturasFVG[3], 0, horasFimFVG[3]);
+      end;
+      if 4 <= visiveisFVG then
+      begin
+        HorizontalLineCustom(centrosFVG[4], coresFVG[4], 1, 0, "FVG", 8, 1,
+          diasInicioFVG[4], diasFimPrimeiroTrechoFVG[4], alturasFVG[4],
+          horasInicioFVG[4], horasFimPrimeiroTrechoFVG[4]);
+        if temDiasIntermediariosFVG[4] then
+          HorizontalLineCustom(centrosFVG[4], coresFVG[4], 1, 0, "", 8, 1,
+            primeirosDiasIntermediariosFVG[4], ultimosDiasIntermediariosFVG[4], alturasFVG[4]);
+        if diasInicioFVG[4] <> diasFimFVG[4] then
+          HorizontalLineCustom(centrosFVG[4], coresFVG[4], 1, 0, "", 8, 1,
+            diasFimFVG[4], diasFimFVG[4], alturasFVG[4], 0, horasFimFVG[4]);
+      end;
+      if 5 <= visiveisFVG then
+      begin
+        HorizontalLineCustom(centrosFVG[5], coresFVG[5], 1, 0, "FVG", 8, 1,
+          diasInicioFVG[5], diasFimPrimeiroTrechoFVG[5], alturasFVG[5],
+          horasInicioFVG[5], horasFimPrimeiroTrechoFVG[5]);
+        if temDiasIntermediariosFVG[5] then
+          HorizontalLineCustom(centrosFVG[5], coresFVG[5], 1, 0, "", 8, 1,
+            primeirosDiasIntermediariosFVG[5], ultimosDiasIntermediariosFVG[5], alturasFVG[5]);
+        if diasInicioFVG[5] <> diasFimFVG[5] then
+          HorizontalLineCustom(centrosFVG[5], coresFVG[5], 1, 0, "", 8, 1,
+            diasFimFVG[5], diasFimFVG[5], alturasFVG[5], 0, horasFimFVG[5]);
+      end;
+    end;
+  end;
+
+  if calculaBreaker then
+  begin
+    quadroBreaker := Mod(CurrentBar, 3);
+    quadroAnteriorBreaker := Mod(CurrentBar + 2, 3);
+    baseBreaker := quadroBreaker * CapacidadeBreaker;
+    baseAnteriorBreaker := quadroAnteriorBreaker * CapacidadeBreaker;
+    totalAnteriorBreaker := 0;
+    if (CurrentBar > 0) and (carimbosBreaker[quadroAnteriorBreaker] = CurrentBar) then
+      totalAnteriorBreaker := quantidadesBreaker[quadroAnteriorBreaker];
+
+    totalBreaker := 0;
+    if CurrentBar > 0 then
+      fechamentoC := Close[1] * ladoOrigemBreaker;
+
+    // A, B e C sao os tres candles ja fechados anteriores ao candle atual.
+    if (CurrentBar >= 4) and (ladoNovoFVG[1] = -ladoOrigemBreaker) then
+    begin
+      aberturaA := Open[3] * ladoOrigemBreaker;
+      fechamentoA := Close[3] * ladoOrigemBreaker;
+      fechamentoB := Close[2] * ladoOrigemBreaker;
+      if ladoOrigemBreaker = 1 then
+      begin
+        extremoA := Low[3];
+        extremosAB := Min(extremoA, Low[2]);
+        inferFVGFechado := High[1];
+        superFVGFechado := Low[3];
+      end
+      else
+      begin
+        extremoA := -High[3];
+        extremosAB := Min(extremoA, -High[2]);
+        inferFVGFechado := High[3];
+        superFVGFechado := Low[1];
+      end;
+      diaBreaker := dataCandle[1];
+      horaBreaker := horaCandle[1];
+
+      // Examinar primeiro as remocoes em C, depois B e A.
+      for atrasoOB := 1 to 3 do
+      begin
+        quadroConsultaOB := Mod(CurrentBar + QuadrosOBRemovidos - atrasoOB, QuadrosOBRemovidos);
+        if (carimbosOBRemovidos[quadroConsultaOB] = CurrentBar - atrasoOB + 1)
+          and (quantidadesOBRemovidos[quadroConsultaOB] > 0) then
+          for leituraBreaker := quantidadesOBRemovidos[quadroConsultaOB] downto 1 do
+          begin
+            entradaBreaker := quadroConsultaOB * CapacidadeBlocos + leituraBreaker;
+            inferBreaker := inferioresOBRemovidos[entradaBreaker];
+            superBreaker := superioresOBRemovidos[entradaBreaker];
+            // Multiplicar pelo lado original reduz a travessia espelhada a um movimento descendente.
+            chegadaBreaker := Max(inferBreaker * ladoOrigemBreaker, superBreaker * ladoOrigemBreaker);
+            saidaTravessia := Min(inferBreaker * ladoOrigemBreaker, superBreaker * ladoOrigemBreaker);
+            if (totalBreaker < CapacidadeBreaker) and (criacoesOBRemovidos[entradaBreaker] < CurrentBar - 3)
+              and (aberturaA > chegadaBreaker) and (fechamentoC < saidaTravessia)
+              and ((extremoA > chegadaBreaker) or (fechamentoA <= chegadaBreaker))
+              and ((extremosAB > chegadaBreaker) or (fechamentoB <= chegadaBreaker))
+              and (Max(inferBreaker, inferFVGFechado) < Min(superBreaker, superFVGFechado)) then
+            begin
+              totalBreaker := totalBreaker + 1;
+              saidaBreaker := baseBreaker + totalBreaker;
+              inferioresBreaker[saidaBreaker] := inferBreaker;
+              superioresBreaker[saidaBreaker] := superBreaker;
+              datasBreaker[saidaBreaker] := diaBreaker;
+              horasBreaker[saidaBreaker] := horaBreaker;
+            end;
+          end;
+      end;
+    end;
+
+    // Depois das novas confirmacoes, copiar as faixas anteriores que ainda estao ativas.
+    if totalAnteriorBreaker > 0 then
+      for leituraBreaker := 1 to totalAnteriorBreaker do
+      begin
+        entradaBreaker := baseAnteriorBreaker + leituraBreaker;
+        inferBreaker := inferioresBreaker[entradaBreaker];
+        superBreaker := superioresBreaker[entradaBreaker];
+        chegadaBreaker := Max(inferBreaker * ladoOrigemBreaker, superBreaker * ladoOrigemBreaker);
+        if (totalBreaker < CapacidadeBreaker) and (fechamentoC <= chegadaBreaker) then
+        begin
+          totalBreaker := totalBreaker + 1;
+          saidaBreaker := baseBreaker + totalBreaker;
+          inferioresBreaker[saidaBreaker] := inferBreaker;
+          superioresBreaker[saidaBreaker] := superBreaker;
+          datasBreaker[saidaBreaker] := datasBreaker[entradaBreaker];
+          horasBreaker[saidaBreaker] := horasBreaker[entradaBreaker];
+        end;
+      end;
+    quantidadesBreaker[quadroBreaker] := totalBreaker;
+    carimbosBreaker[quadroBreaker] := CurrentBar + 1;
+
+    ordemBreaker := OrdemFaixaOB;
+    if ordemBreaker < 1 then
+      ordemBreaker := 1;
+    if LastBarOnChart and (ordemBreaker <= totalBreaker) then
+    begin
+      saidaBreaker := baseBreaker + ordemBreaker;
+      inferBreaker := inferioresBreaker[saidaBreaker];
+      superBreaker := superioresBreaker[saidaBreaker];
+      centroBreaker := (inferBreaker + superBreaker) / 2;
+      alturaBreaker := (superBreaker - inferBreaker) / 2;
+      diaBreaker := datasBreaker[saidaBreaker];
+      horaBreaker := horasBreaker[saidaBreaker];
+      fimDiaBreaker := 0;
+      if horaBreaker <> 0 then
+        fimDiaBreaker := diaBreaker;
+      HorizontalLineCustom(centroBreaker, clLtGray, 1, 0, "Breaker", 8, 1,
+        diaBreaker, fimDiaBreaker, alturaBreaker, horaBreaker, 2359);
+      if (horaBreaker <> 0) and (dataCandle > diaBreaker) then
+        HorizontalLineCustom(centroBreaker, clLtGray, 1, 0, "", 8, 1,
+          CalcDate(diaBreaker, 1), 0, alturaBreaker);
+    end;
+  end;
+end;
