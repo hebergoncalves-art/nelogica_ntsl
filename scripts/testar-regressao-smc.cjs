@@ -15,6 +15,8 @@ const commit = '53f8560259735e7cbf537636a3bd438b519f8ca3';
 const baseline = execFileSync('git', ['show', `${commit}:${path}`], { cwd: root });
 const foundationCommit = 'acc5ffb6df32353b3fbc3d29b8b0e99c1ceb0291';
 const foundation = execFileSync('git', ['show', `${foundationCommit}:${path}`], { cwd: root });
+const flipCommit = 'cbcf1d71ffd014f7908030f25c81f1d3f2c3de5e';
+const structuralFlip = execFileSync('git', ['show', `${flipCommit}:${path}`], { cwd: root });
 const candidate = readFileSync(join(root, path));
 const sha = (data) => createHash('sha256').update(data).digest('hex');
 
@@ -147,6 +149,11 @@ function compile(source) {
       const negative = eat('else') ? `else{${statement()}}` : '';
       return `if(${test}){${positive}}${negative}`;
     }
+    if (eat('while')) {
+      const test = expr();
+      want('do');
+      return `while(${test}){${statement()}}`;
+    }
     if (eat('for')) {
       const name = take();
       want(':=');
@@ -267,6 +274,7 @@ function runtime(program, bars, overrides = {}, tick = 1) {
 
 const original = compile(baseline);
 const accepted = compile(foundation);
+const acceptedFlip = compile(structuralFlip);
 const updated = compile(candidate);
 
 function dated(rows) {
@@ -399,6 +407,15 @@ function flipArchive(model, lane) {
 }
 
 const flipCloses = [92, 92, 94, 90, 92, 98, 100, 95, 100, 109, 106, 104, 105, 110, 108, 99];
+const poiLeg = { 13: [109, 112, 107, 110], 14: [110, 111, 105, 108], 15: [108, 109, 95, 99] };
+
+function poiArchive(model, lane) {
+  return Array.from({ length: model.element('poiusados', lane) }, (_, offset) =>
+    Object.fromEntries([
+      'id', 'origemzona', 'lozona', 'hizona', 'ativacao', 'publicacao', 'estado', 'pre', 'toque',
+      'visitas', 'profundidade', 'intersecaoinvalidacao', 'alvoref', 'reteste', 'statusreteste', 'fimzona',
+    ].map((field) => [field, model.element('poi' + field, (lane - 1) * 100 + offset)])));
+}
 
 function flipFixture(scale = 1, side = -1, { closes = flipCloses, events = {}, envelope, config = {},
   before = () => {}, after = () => {}, repeat = false, historical = false } = {}) {
@@ -439,14 +456,28 @@ function flipFixture(scale = 1, side = -1, { closes = flipCloses, events = {}, e
     if (repeat) {
       const total = model.get('fliptotal');
       const beforeTick = flipArchive(model, lane);
+      const zonesBeforeTick = poiArchive(model, lane);
       assert.deepEqual(model.step(index, isLast), drawing);
       assert.equal(model.get('fliptotal'), total);
       assert.deepEqual(flipArchive(model, lane), beforeTick);
+      assert.deepEqual(poiArchive(model, lane), zonesBeforeTick);
     }
     progress.push([model.element('flipfase', lane), model.element('flipmotivo', lane)]);
     after(model, index, lane);
   }
   return { model, events: flipArchive(model, lane), trace, progress, bars, lane };
+}
+
+function poiFixture({ tail = [], envelope = {}, config = {}, ...options } = {}) {
+  const tailRows = Object.fromEntries(tail.map((row, index) => [16 + index, row]));
+  const fixture = flipFixture(options.scale ?? 1, options.side ?? -1, {
+    ...options, closes: [...flipCloses, ...tail.map((row) => row[3])],
+    envelope: { ...poiLeg, ...envelope, ...tailRows }, config: { MostrarFaixasFlip: true, ...config },
+  });
+  const { model, lane } = fixture;
+  return { ...fixture, zones: poiArchive(model, lane),
+    zoneId: model.element('flipeventozonaid', (lane - 1) * 100),
+    reason: model.element('flipeventozonamotivo', (lane - 1) * 100) };
 }
 
 function segments(calls) {
@@ -462,9 +493,20 @@ const cases = {
     ]);
     assert.equal(sha(foundation), '37b2bd0f549b2073a811141725aabc369a78d75da5775d5bbb434493858b7e51');
     assert.deepEqual(Object.entries(updated.inputs).slice(0, 30), Object.entries(accepted.inputs));
-    assert.deepEqual(Object.entries(updated.inputs).slice(30), [
+    assert.deepEqual(Object.entries(updated.inputs).slice(30, 37), [
       ['habilitarflip', false], ['mostrarflip', false], ['escalaflip', 2], ['reacaominflipatr', 0.5],
       ['maxbarrasflip', 100], ['permitirgapflip', true], ['mostrarcandidatosflip', false],
+    ]);
+    assert.equal(sha(structuralFlip), '47120dbc93447d109d7e13446b6321b1075febb2a18be36532bcf5a566714247');
+    assert.deepEqual(Object.entries(updated.inputs).slice(0, 37), Object.entries(acceptedFlip.inputs));
+    assert.deepEqual(Object.entries(updated.inputs).slice(37), [
+      ['mostrarfaixasflip', false], ['tipozonaflip', 0], ['maxbuscaorigemflip', 30], ['fallbackpivoflip', true],
+      ['maxbasecandlesflip', 3], ['baserangeflipatr', 1], ['maxlarguraflipatr', 0], ['exigirfreshflip', false],
+      ['meiozonaflip', true], ['maxflipvisiveis', 10], ['modoinvalidacaoflip', 0], ['bufferinvalidacaoticksflip', 1],
+      ['mostrarinvalidadasflip', 1], ['ocultarmitigadasflip', 0], ['encerraraposmitigacaoflip', 0],
+      ['maxidadeflip', 0], ['maxvisitasflip', 0], ['modoretesteflip', 0], ['reacaoretesteatrflip', 0.5],
+      ['maxbarrasretesteflip', 20], ['corfaixaflipalta', 'clgreen'], ['corfaixaflipbaixa', 'clred'],
+      ['corinvalidadaflip', 'clgray'], ['mostrarorigemflip', false],
     ]);
     for (const [name, value] of Object.entries(original.constants)) assert.equal(updated.constants[name], value, name);
     return 'hash de referência, 26 inputs e constantes legadas conferidos. Compilação PENDENTE';
@@ -1064,6 +1106,216 @@ const cases = {
       }
     }
     return 'comparação com smc-08a em 850 barras, cinco modos e os dois estados de DebugSMC, com Flips gerados pelo fonte';
+  },
+  P01() {
+    for (const scale of [0, 1]) {
+      for (const side of [-1, 1]) {
+        for (const type of [0, 1, 2]) {
+          const { trace, bars } = flipFixture(scale, side, {
+            envelope: poiLeg, config: { MostrarFaixasFlip: true, TipoZonaFlip: type },
+          });
+          const label = side === -1 ? 'POI FLIP-' : 'POI FLIP+';
+          assert.equal(horizontal(trace[15], label).length, 0);
+          const [zone] = horizontal(trace[16], label);
+          const center = type === 1 ? 110.5 : 109.5;
+          assert.equal(zone[1], side === -1 ? center : 200 - center);
+          assert.equal(zone[10], type === 1 ? 1.5 : 2.5);
+          assert.deepEqual(zone.slice(8, 10), [bars[15][4], bars[15][4]]);
+          assert.equal(zone[11], bars[15][5]);
+          assert.equal(horizontal(trace[16], '').filter((call) => call[1] === zone[1] && call[10] === 0).length, 1);
+        }
+      }
+    }
+    return 'geometria nas duas direções e escalas, publicação em B+1 e meio opcional';
+  },
+  P02() {
+    const bounds = ({ zones: [zone] }) => [zone.origemzona, zone.lozona, zone.hizona];
+    const fallback = { 13: [110, 114, 106, 110], 14: [108, 111, 105, 108], 15: [99, 103, 95, 99] };
+    assert.deepEqual(bounds(poiFixture({ envelope: fallback })), [13, 106, 114]);
+    for (const config of [{ FallbackPivoFlip: false }, { MaxBuscaOrigemFlip: 1 }]) {
+      const absent = poiFixture({ envelope: fallback, config });
+      assert.equal(absent.events.length, 1);
+      assert.equal(absent.zones.length, 0);
+      assert.equal(absent.reason, 10);
+    }
+    assert.deepEqual(bounds(poiFixture({ envelope: { 13: [109, 112.25, 107.25, 110] } })), [13, 107, 113]);
+    assert.deepEqual(bounds(poiFixture({ envelope: { 15: [99, 109, 95, 99] } })), [13, 107, 112]);
+    const base = {
+      events: { 14: [[1, 12, 112]] },
+      envelope: { 12: [105, 106, 101, 105], 13: [108, 109, 103, 108], 14: [109, 112, 107, 110] },
+    };
+    assert.deepEqual(bounds(poiFixture({ ...base, config: { TipoZonaFlip: 2 } })), [14, 101, 112]);
+    assert.deepEqual(bounds(poiFixture({ ...base, config: { TipoZonaFlip: 2, MaxBaseCandlesFlip: 2 } })), [14, 103, 112]);
+    assert.deepEqual(bounds(poiFixture({ ...base, config: {
+      TipoZonaFlip: 2, PeriodoATRSMC: 50, ReacaoMinFlipATR: 0,
+    } })), [14, 107, 112]);
+    for (const config of [{ MaxLarguraFlipATR: 0.01 }, { MaxLarguraFlipATR: 1, PeriodoATRSMC: 50, ReacaoMinFlipATR: 0 }]) {
+      const wide = poiFixture({ config });
+      assert.equal(wide.events.length, 1);
+      assert.equal(wide.zones.length, 0);
+      assert.equal(wide.reason, 12);
+    }
+    assert.equal(poiFixture({ config: { TipoZonaFlip: 3 } }).reason, 15);
+    return 'fallback, janela, arredondamento externo, BASE contígua, ATR indisponível e largura';
+  },
+  P03() {
+    const wait = { envelope: { 13: [109, 112, 98, 110] }, config: { ExigirFreshFlip: true } };
+    assert.equal(poiFixture(wait).zones[0].estado, 1);
+    assert.equal(poiFixture({ ...wait, tail: [[97, 99, 94, 96]] }).zones[0].estado, 2);
+    const pre = { envelope: { 14: [110, 111, 103, 105] } };
+    const acceptedZone = poiFixture(pre).zones[0];
+    assert.equal(acceptedZone.pre, true);
+    assert.equal(acceptedZone.estado, 3);
+    assert.equal(acceptedZone.profundidade, 0.4);
+    const rejected = poiFixture({ ...pre, config: { ExigirFreshFlip: true } });
+    assert.equal(rejected.events.length, 1);
+    assert.equal(rejected.zones.length, 0);
+    assert.equal(rejected.reason, 14);
+    const distal = poiFixture({
+      events: { 14: [[1, 12, 112]] },
+      envelope: { 12: [104, 108, 101, 105], 13: [110, 112, 108, 110],
+        14: [114, 115, 107, 113], 15: [112, 113, 95, 99] },
+    });
+    assert.equal(distal.events.length, 1);
+    assert.equal(distal.reason, 13);
+    return 'WAIT_EXIT aceito pelo filtro, saída posterior, PRE_MITIGATED e distal antes de B';
+  },
+  P04() {
+    const envelope = { 13: [109, 112, 106, 110] };
+    const touches = [[99, 106, 96, 100], [100, 109, 98, 101], [101, 112, 97, 100]];
+    for (const side of [-1, 1]) {
+      for (const [depth, state, length] of [[0, 3, 1], [0.5, 4, 2], [1, 5, 3]]) {
+        const [zone] = poiFixture({ side, envelope, tail: touches.slice(0, length) }).zones;
+        assert.deepEqual([zone.profundidade, zone.estado, zone.visitas], [depth, state, 1]);
+      }
+    }
+    const gap = [114, 116, 113, 114];
+    const skipped = poiFixture({ envelope, tail: [gap] }).zones[0];
+    assert.deepEqual([skipped.estado, skipped.visitas, skipped.intersecaoinvalidacao], [6, 0, false]);
+    assert.equal(poiFixture({ envelope, tail: [[108, 112, 104, 112]] }).zones[0].estado, 5);
+    const outside = [101, 104, 98, 100];
+    const incomingWrong = poiFixture({ envelope, tail: [...touches, gap, [112, 114, 110, 112], outside, touches[0]],
+      config: { BufferInvalidacaoTicksFlip: 5 } }).zones[0];
+    assert.deepEqual([incomingWrong.estado, incomingWrong.visitas, incomingWrong.profundidade], [5, 2, 1]);
+    assert.equal(poiFixture({ envelope, tail: [...touches, outside, touches[0]],
+      config: { MaxVisitasFlip: 1 } }).zones[0].fimzona, 19);
+    const hidden = poiFixture({ envelope, tail: touches, config: { OcultarMitigadasFlip: 50 } });
+    assert.equal(horizontal(hidden.trace.at(-1), 'POI FLIP-').length, 0);
+    assert.equal(hidden.zones[0].fimzona, -1);
+    assert.equal(poiFixture({ envelope, tail: touches, config: { EncerrarAposMitigacaoFlip: 50 } }).zones[0].fimzona, 17);
+    return 'simetria, toque, profundidade máxima, visitas, gap e controles de mitigação';
+  },
+  P05() {
+    const touch = [99, 107, 96, 100];
+    const reaction = [101, 113, 94, 95];
+    const config = { ModoRetesteFlip: 1, ReacaoRetesteATRFlip: 0 };
+    assert.equal(poiFixture({ tail: [touch, reaction], config }).zones[0].reteste, 17);
+    const simultaneous = poiFixture({ tail: [touch, reaction],
+      config: { ...config, ModoInvalidacaoFlip: 1, MaxIdadeFlip: 1, MostrarInvalidadasFlip: 2, CorInvalidadaFlip: 12345 } });
+    assert.deepEqual([simultaneous.zones[0].fimzona, simultaneous.zones[0].estado,
+      simultaneous.zones[0].reteste, simultaneous.zones[0].intersecaoinvalidacao], [17, 6, -1, true]);
+    assert.equal(horizontal(simultaneous.trace.at(-1), 'POI FLIP-')[0][2], 12345);
+    assert.equal(poiFixture({ tail: [touch, reaction], config: { ...config, MaxIdadeFlip: 1 } }).zones[0].estado, 7);
+    const hold = [107, 108, 106, 107];
+    assert.equal(poiFixture({ tail: [touch, hold, hold], config: { ...config, MaxBarrasRetesteFlip: 1 } }).zones[0].statusreteste, 4);
+    const mode2 = { tail: [[100, 104, 97, 100], touch, reaction], config: { ...config, ModoRetesteFlip: 2 } };
+    assert.equal(poiFixture(mode2).zones[0].statusreteste, 3);
+    const qualified = poiFixture({ ...mode2, before(model, index) {
+      if (index === 17) stageFacts(model, 16, [fact(2, 15, 96)]);
+    } }).zones[0];
+    assert.deepEqual([qualified.alvoref, qualified.reteste, qualified.statusreteste], [16, 18, 2]);
+    const tooLate = poiFixture({ ...mode2, before(model, index) {
+      if (index === 18) stageFacts(model, 17, [fact(2, 16, 96)]);
+    } }).zones[0];
+    assert.equal(tooLate.statusreteste, 3);
+    const laterVisit = poiFixture({
+      tail: [[100, 104, 97, 100], touch, [100, 105, 97, 100], [104, 111, 100, 107], [102, 104, 94, 95]],
+      config: { ModoRetesteFlip: 2, ReacaoRetesteATRFlip: 1.55, PeriodoATRSMC: 2 },
+      before(model, index) {
+        if (index === 17) stageFacts(model, 16, [fact(2, 15, 96)]);
+      },
+    }).zones[0];
+    assert.deepEqual([laterVisit.visitas, laterVisit.reteste], [2, -1]);
+    return 'reteste posterior, alvo interno prévio, prazo inclusivo e prioridade da invalidação';
+  },
+  P06() {
+    function seeded(count, terminal, duplicate) {
+      return poiFixture({ before(model, index, lane) {
+        if (index !== 16) return;
+        model.set('poiusados', count, lane);
+        model.set('poiidtotal', count);
+        for (let offset = 0; offset < count; offset++) {
+          const slot = (lane - 1) * 100 + offset;
+          model.set('poiid', offset + 1, slot);
+          model.set('poifimzona', terminal && offset < 2 ? 3 - offset : -1, slot);
+          model.set('poiorigemzona', duplicate && offset === 0 ? 13 : 0, slot);
+          model.set('poilozona', duplicate && offset === 0 ? 107 : 200, slot);
+          model.set('poihizona', duplicate && offset === 0 ? 112 : 210, slot);
+          model.set('poiestado', 2, slot);
+        }
+      }, config: { MostrarFaixasFlip: false } });
+    }
+    const linked = seeded(1, false, true);
+    assert.equal(linked.zones.length, 1);
+    assert.equal(linked.zoneId, 1);
+    const saturated = seeded(100, false, false);
+    assert.equal(saturated.events.length, 1);
+    assert.equal(saturated.reason, 17);
+    assert.equal(saturated.zoneId, 0);
+    assert.deepEqual(saturated.zones.map(({ id }) => id), Array.from({ length: 100 }, (_, i) => i + 1));
+    const recycled = seeded(100, true, false);
+    assert.equal(recycled.zones.length, 100);
+    assert.equal(recycled.zones[0].id, 1);
+    assert.equal(recycled.zones[1].id, 101);
+    assert.equal(recycled.zoneId, 101);
+    const ranked = poiFixture({ config: { MaxFlipVisiveis: 2 }, before(model, index, lane) {
+      if (index !== 16) return;
+      model.set('poiusados', 3, lane);
+      model.set('poiidtotal', 3);
+      for (const [offset, origin] of [[0, 9], [1, 8], [2, 9]]) {
+        const slot = (lane - 1) * 100 + offset;
+        model.set('poiid', offset + 1, slot);
+        model.set('poilados', -1, slot);
+        model.set('poilozona', 200 + offset * 10, slot);
+        model.set('poihizona', 204 + offset * 10, slot);
+        model.set('poiorigemzona', origin, slot);
+        model.set('poifimzona', -1, slot);
+        model.set('poiestado', 2, slot);
+        model.set('poiativacao', 12, slot);
+        model.set('poidia', 1261102, slot);
+        model.set('poihora', 1030, slot);
+      }
+    } });
+    assert.deepEqual(horizontal(ranked.trace[16], 'POI FLIP-').map((call) => call[1]), [109.5, 222]);
+    return 'vínculo por geometria, capacidade, reciclagem e ordem estável com limite visual';
+  },
+  P07() {
+    const tail = Array.from({ length: 18 }, () => [98, 103, 96, 99]);
+    tail.at(-1).splice(0, 4, 113, 115, 113, 114);
+    const live = poiFixture({ tail, repeat: true });
+    const reload = poiFixture({ tail, historical: true });
+    assert.deepEqual(live.zones, reload.zones);
+    assert.deepEqual(live.trace.at(-1), reload.trace.at(-1));
+    const [opening, middle, ending] = horizontal(live.trace.at(-1)).filter((call) => call[10] === 2.5);
+    assert.deepEqual(opening.slice(8), [live.bars[15][4], live.bars[15][4], 2.5, live.bars[15][5], 2359]);
+    assert.deepEqual(middle.slice(8), [live.bars[16][4], live.bars[16][4], 2.5]);
+    assert.deepEqual(ending.slice(8), [live.bars[33][4], live.bars[33][4], 2.5, 0, live.bars[33][5]]);
+    assert.equal(horizontal(poiFixture({ config: { MeioZonaFlip: false } }).trace[16], '').length, 0);
+    assert.equal(horizontal(poiFixture({ tail, config: { MostrarInvalidadasFlip: 0 } }).trace.at(-1), 'POI FLIP-').length, 0);
+
+    const bars = dated(Array.from({ length: 140 }, (_, index) => {
+      const close = Math.round(100 + 14 * Math.sin(index / 5) + 5 * Math.cos(index / 2));
+      return [close, close + 4, close - 4, close];
+    }));
+    for (const mode of [0, 1, 2, 3, 4]) {
+      const options = { HabilitarFlip: true, MostrarFlip: true, MostrarCandidatosFlip: true,
+        PeriodoSwing: 10, ModoFaixaOB: mode, MostrarFVG: true, MostrarBlocosSwing: true, MostrarBreakerBlocks: true };
+      const old = runtime(acceptedFlip, bars, options);
+      const newer = runtime(updated, bars, { ...options, MostrarFaixasFlip: mode > 0 });
+      for (let bar = 0; bar < bars.length; bar++) assert.deepEqual(newer.step(bar), old.step(bar));
+      for (let lane = 1; lane <= 4; lane++) assert.deepEqual(flipArchive(newer, lane), flipArchive(old, lane));
+    }
+    return 'reavaliação, recarga, três sessões, meio opcional e comparação com a revisão aceita da 09A';
   },
 };
 

@@ -1,6 +1,6 @@
 # 09A — Flip estrutural do SMC_Hebim
 
-Status: ready-for-human
+Status: accepted
 
 ## Referência e escopo
 
@@ -11,8 +11,8 @@ A 09A entrega o Flip estrutural estrito da [seção B1](../SPEC_evolucao.md#b1-n
 | Revisão 09A | Evidência |
 | --- | --- |
 | SHA-256 do candidato | `47120dbc93447d109d7e13446b6321b1075febb2a18be36532bcf5a566714247` |
-| Profit Pro, compilação, Replay e renderização | PENDENTE |
-| Aceite 09A | PENDENTE |
+| Profit Pro, compilação, Replay e renderização | Versão, ativo, período, parâmetros e resultados individuais não informados |
+| Aceite 09A | Usuário informou que os testes 09A estão OK e autorizou a próxima entrega |
 
 ## Configuração e arquitetura
 
@@ -55,8 +55,10 @@ Executar `node scripts/testar-regressao-smc.cjs` e `./scripts/verificar-indicado
 
 ## Validação no Profit Pro
 
+O usuário aceitou a 09A. O roteiro abaixo fica como referência para recuperar as evidências individuais da execução.
+
 1. Compilar a 09A e registrar hash, versão do Profit, ativo, período, sessão, tick e parâmetros. A linha e a etiqueta de cada Flip devem aparecer somente depois de fechada a barra B.
 2. Aplicar uma instância no modo 0 com `HabilitarFlip=True` e `MostrarFlip=True`. Em Replay, localizar exemplos de compra e venda, interna e swing. Conferir que a linha liga a confirmação de L1/H1 ao fechamento de B e que a etiqueta distingue I de S. Testar dois Flips históricos da mesma escala e direção e um segmento que atravesse duas sessões.
 3. Comparar recarga e Replay. Conferir que uma guia de candidato some após cancelamento, que confirmação mantém a geometria e que alternar as opções de desenho preserva os registros. No modo Debug, usar `flipEventoConfirmacao`, `flipEventoPublicacao`, `flipEventoNivel` e `flipMotivo` como referência.
 4. Comparar com a 08A usando o mesmo OHLC e os mesmos parâmetros legados, incluindo uma instância LEGACY nos modos 1 ou 2. Registrar esperado, observado, evidência e estado por caso.
-5. Registrar commit e tag da 09A quando houver validação da versão alvo. Aguardar o aceite explícito da 09A para iniciar 09B.
+5. Registrar a versão do Profit usada na validação e associar as evidências ao commit `cbcf1d71ffd014f7908030f25c81f1d3f2c3de5e`.
