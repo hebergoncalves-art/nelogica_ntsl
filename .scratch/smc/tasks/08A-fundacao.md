@@ -1,6 +1,6 @@
 # 08A — Auditoria e fundação do SMC_Hebim
 
-Status: ready-for-human
+Status: aceito pelo usuário
 
 Entrega limitada à fundação da [SPEC de evolução](../SPEC_evolucao.md). O aceite desta revisão precede a 09A. B01–B12 são a matriz reconstruída a partir da SPEC, dos [casos existentes](../casos.md) e do fonte, conforme autorizado. O checkout contém a tarefa 08 do Breaker. A tarefa 08A original e os anexos de `referencias/` citados no pacote estão ausentes.
 
@@ -11,8 +11,9 @@ Entrega limitada à fundação da [SPEC de evolução](../SPEC_evolucao.md). O a
 | Commit de referência | `53f8560259735e7cbf537636a3bd438b519f8ca3` |
 | SHA-256 da referência | `adb3ce8479a06291df0eb32ce4bddd15dc2ee3919d296cdd54be5ce45ec6ab94` |
 | SHA-256 do candidato | `37b2bd0f549b2073a811141725aabc369a78d75da5775d5bbb434493858b7e51` |
-| Profit Pro, compilação, Replay e capturas | PENDENTE |
-| Commit e tag 08A | PENDENTE até a validação no Profit |
+| Profit Pro | Usuário informou funcionamento normal com `DebugSMC=True` e confirmou que os testes 08A estão OK. |
+| Versão do Profit e evidência por caso | Versão, configuração de Replay e capturas não informadas. |
+| Commit e tag 08A | Fonte em `acc5ffb`, referência da tag `smc-08a`. |
 
 O verificador de estrutura e hash é `./scripts/verificar-indicador.ps1 -Indicador smc`. O [harness](../../../scripts/testar-regressao-smc.cjs) roda com `node scripts/testar-regressao-smc.cjs` na raiz. Lê a referência via Git e o candidato do workspace, interpreta o subconjunto NTSL usado nas duas revisões e compara as chamadas de desenho por barra. Alguns cenários injetam estado conhecido para alcançar limites ou isolar um produtor. A simulação local cobre preços, índices, ordens e argumentos de desenho. A renderização, o desempenho e o recálculo efetivos da plataforma exigem execução no Profit.
 
@@ -88,7 +89,7 @@ As interfaces reservadas seguem a SPEC. `Flip` e `Zone` usam pivôs, ruptura, co
 | B11 · Reavaliação | Reexecutar preserva fatos, IDs, ordem e desenho. | 410 barras com dois ticks por barra. As 19 partições coincidiram com o estado após a carga histórica. Salto de histórico diagnosticado. | PASS | PENDENTE |
 | B12 · Capacidade e tempo | 100 por partição, terminais reciclados antes dos ativos, rejeição explícita e tempos comparáveis. | Limites, reciclagem e rejeição `CAPACITY_FULL` conferidos. Medianas locais em 850 candles, três execuções por configuração, com referência 45,4 ms, candidato OFF 45,3 ms e ON 261,1 ms. | PASS | PENDENTE |
 
-Na coluna Profit, o observado de B01 a B12 ainda aguarda execução no Editor e no gráfico da versão alvo. A coluna local registra a execução dos dois fontes pelo simulador e testes adicionais da nova fundação. A inspeção do diff confirmou que as expressões legadas de pivô, cruzamento, viés, seleção de OB e Breaker LEGACY foram preservadas. Os pontos alterados ao redor dos detectores ampliam o cálculo quando a coleta precisa dele e mantêm as condições gráficas anteriores.
+Na coluna Profit, `PENDENTE` indica que o resultado por caso ainda está sem evidência detalhada no repositório. O usuário confirmou o aceite geral da 08A. A coluna local registra a execução dos dois fontes pelo simulador e testes adicionais da nova fundação. A inspeção do diff confirmou que as expressões legadas de pivô, cruzamento, viés, seleção de OB e Breaker LEGACY foram preservadas.
 
 ## Roteiro no Profit Pro
 

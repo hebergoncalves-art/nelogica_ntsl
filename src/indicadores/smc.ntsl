@@ -49,6 +49,22 @@ const
   SMCAlvoSubstituido = 18;
   SMCContextoPerdido = 19;
   SMCTransicao = 2;
+  FlipCapacidade = 100;
+  FlipUltimoIndice = 399;
+  FlipAguardaReacao = 1;
+  FlipArmado = 2;
+  FlipConfirmado = 3;
+  FlipPerdaPrecoce = 4;
+  FlipExtremoRompido = 5;
+  FlipPrazoExcedido = 6;
+  FlipDadosInvalidos = 7;
+  FlipOrdemAmbigua = 8;
+  FlipGapBloqueado = 9;
+  FlipRetornouNivel = 10;
+  FlipATRIndisponivel = 11;
+  FlipSemReacao = 12;
+  FlipForaTolerancia = 13;
+  FlipSemVaga = 17;
 
 input
   PeriodoSwing(50);
@@ -81,6 +97,13 @@ input
   ToleranciaSMCTicks(1);
   BufferRupturaSMCTicks(1);
   DebugSMC(False);
+  HabilitarFlip(False);
+  MostrarFlip(False);
+  EscalaFlip(2);
+  ReacaoMinFlipATR(0.5);
+  MaxBarrasFlip(100);
+  PermitirGapFlip(True);
+  MostrarCandidatosFlip(False);
 
 var
   periodo, perna, vies : Integer;
@@ -191,6 +214,32 @@ var
   smcHistOrigem, smcHistConfirmacao, smcHistLado : array[0..399] of Integer;
   smcHistPreco : array[0..399] of Float;
 
+  flipConfigValida, flipCalcula, smcCalcula : Boolean;
+  flipEscala, flipLado, flipDirecao, flipReacaoLado, flipNovoPivo, flipPivoAnterior : Integer;
+  flipMeioTicks, flipExtremoTicks, flipDistancia, flipDistanciaAnterior : Integer;
+  flipBase, flipIndice, flipDestino, flipTerminal, flipQuebraLegada : Integer;
+  flipInicioDia, flipInicioHora, flipFimDia, flipFimHora, flipCor, flipTraco, flipSaida : Integer;
+  flipConfirmar, flipGap, flipDesenha : Boolean;
+  flipNivelDesenho, flipMinimo : Float;
+  flipLegenda : String;
+  flipTotal, flipSemVagaTotal : Integer;
+  flipFluxoAnterior, flipPerdaProtecao : array[0..1] of Integer;
+  flipPivoAmbiguo : array[0..1] of Boolean;
+  // Candidatos: interna compra/venda, swing compra/venda.
+  flipFase, flipMotivo, flipBarraMotivo, flipPivoAdmitido, flipAlvoContinuacao : array[1..4] of Integer;
+  flipExtremoRef, flipMeioRef, flipReacaoRef, flipCruzaEm, flipLegadoEm, flipLegadoTipo : array[1..4] of Integer;
+  flipExtremoOrigem, flipMeioOrigem, flipReacaoOrigem, flipMeioDia, flipMeioHora : array[1..4] of Integer;
+  flipExtremoPreco, flipMeioPreco, flipReacaoPreco, flipATRMeio : array[1..4] of Float;
+  flipUsados, flipPublicadoSlot : array[1..4] of Integer;
+  // O historico preserva o Flip original. Continuacao e falha tem barras proprias.
+  flipEventoExtremo, flipEventoMeio, flipEventoReacao, flipEventoCruzamento : array[0..FlipUltimoIndice] of Integer;
+  flipEventoOrigemExtremo, flipEventoOrigemMeio, flipEventoOrigemReacao : array[0..FlipUltimoIndice] of Integer;
+  flipEventoConfirmacao, flipEventoPublicacao, flipEventoData, flipEventoHora : array[0..FlipUltimoIndice] of Integer;
+  flipEventoDataMeio, flipEventoHoraMeio, flipEventoContexto : array[0..FlipUltimoIndice] of Integer;
+  flipEventoLegado, flipEventoTipoLegado, flipEventoContinuacao, flipEventoFalha : array[0..FlipUltimoIndice] of Integer;
+  flipEventoReversao : array[0..FlipUltimoIndice] of Boolean;
+  flipEventoNivel, flipEventoExtremoPreco, flipEventoReacaoPreco, flipEventoATRMeio : array[0..FlipUltimoIndice] of Float;
+
 begin
   // Gravar data e hora em series antes de consultar candles anteriores.
   dataCandle := Date;
@@ -208,9 +257,13 @@ begin
   calculaFVG := exibeFVG or DebugSMC;
   calculaOBInterno := calculaBlocosInternos or DebugSMC;
   calculaOBSwing := calculaBlocosSwing or DebugSMC;
+  flipConfigValida := (EscalaFlip >= 0) and (EscalaFlip <= 2)
+    and (ReacaoMinFlipATR >= 0) and (MaxBarrasFlip >= 0);
+  flipCalcula := HabilitarFlip and flipConfigValida;
+  smcCalcula := DebugSMC or flipCalcula;
 
   smcColeta := False;
-  if DebugSMC then
+  if smcCalcula then
   begin
     smcConfigValida := (PeriodoATRSMC >= 2) and (ToleranciaSMCTicks >= 0)
       and (BufferRupturaSMCTicks >= 0);
@@ -246,6 +299,19 @@ begin
         smcProtecaoConfirmacao[smcEscala] := -1;
         smcHistInicio[smcEscala] := 0;
         smcHistTotal[smcEscala] := 0;
+      end;
+      if flipCalcula then
+      begin
+        flipTotal := 0;
+        flipSemVagaTotal := 0;
+        for flipLado := 1 to 4 do
+        begin
+          flipFase[flipLado] := 0;
+          flipUsados[flipLado] := 0;
+          flipMotivo[flipLado] := 0;
+          flipBarraMotivo[flipLado] := -1;
+          flipPublicadoSlot[flipLado] := -1;
+        end;
       end;
     end;
     // Uma nova passagem pela barra em formacao substitui o lote inteiro.
@@ -500,7 +566,8 @@ begin
     end;
   end;
 
-  if (MostrarEstruturaInterna or calculaOBInterno) and (CurrentBar >= JanelaInterna) then
+  if (MostrarEstruturaInterna or calculaOBInterno or (flipCalcula and (EscalaFlip <> 1)))
+    and (CurrentBar >= JanelaInterna) then
   begin
     if High[JanelaInterna] > Highest(High, JanelaInterna) then
       pernaInterna := 0
@@ -1633,7 +1700,7 @@ begin
   end;
 
   // t+1 fecha o lote de t. LastBarOnChart tambem vale durante a formacao.
-  if DebugSMC and (CurrentBar > 0) and (CurrentBar - 1 > smcUltimaPublicacao) then
+  if smcCalcula and (CurrentBar > 0) and (CurrentBar - 1 > smcUltimaPublicacao) then
   begin
     smcBarra := CurrentBar - 1;
     smcQuadro := Mod(smcBarra, 2);
@@ -1684,6 +1751,12 @@ begin
       begin
         smcPivoNaBarra[smcLado] := -1;
         smcBreakNaBarra[smcLado] := -1;
+        if flipCalcula then
+        begin
+          flipPivoAdmitido[smcLado] := -1;
+          flipPublicadoSlot[smcLado] := -1;
+          flipAlvoContinuacao[smcLado] := -1;
+        end;
       end;
       if smcUltimo >= smcPrimeiro then
         for smcIndice := smcPrimeiro to smcUltimo do
@@ -1885,7 +1958,18 @@ begin
               if (smcProtecaoConfirmacao[smcEscala] < 0) and (smcMotivoFluxo = 0) then
                 smcMotivoFluxo := SMCProtecaoIncerta;
             end;
+            if flipCalcula and (smcAlvo >= 0) and (smcHistOposto >= 0) then
+              if smcHistOrigem[smcHistOposto] > smcQuebraOrigem then
+                flipAlvoContinuacao[smcLado] := smcQuebraOrigem;
           end;
+        end;
+        if flipCalcula then
+        begin
+          flipFluxoAnterior[smcEscala] := smcAntigoFluxo;
+          flipPerdaProtecao[smcEscala] := 0;
+          flipPivoAmbiguo[smcEscala] := False;
+          if smcMotivoFluxo = SMCPerdaProtecao then
+            flipPerdaProtecao[smcEscala] := -smcAntigoFluxo;
         end;
         // O snapshot sempre pertence ao fechamento, inclusive se continuar neutro.
         smcUltimo := smcUltimo + 1;
@@ -1943,7 +2027,11 @@ begin
                 smcRegistraPivo := False;
                 smcEventoQualificacao[smcSlot] := SMCAmbiguo;
                 if smcOrigem = smcHistOrigem[smcHistUltimo] then
+                begin
                   smcHistTotal[smcEscala] := smcHistQtd - 1;
+                  if flipCalcula then
+                    flipPivoAmbiguo[smcEscala] := True;
+                end;
               end
               else if smcHistLado[smcHistUltimo] = smcDirecao then
               begin
@@ -1984,6 +2072,8 @@ begin
               smcHistConfirmacao[smcHistPos] := smcBarra;
               smcHistLado[smcHistPos] := smcDirecao;
               smcHistPreco[smcHistPos] := smcEventoLo[smcSlot];
+              if flipCalcula then
+                flipPivoAdmitido[smcLado] := smcHistPos;
               if smcHistPos <> smcHistUltimo then
               begin
                 if smcHistQtd < SMCHistPivos then
@@ -2120,7 +2210,298 @@ begin
         end;
         smcPublicados := smcPublicados + 1;
       end;
+
+      // 09A: avaliar o nivel congelado antes de consumir os pivos deste lote.
+      if flipCalcula then
+        for flipLado := 1 to 4 do
+        begin
+          flipEscala := 0;
+          if flipLado > 2 then
+            flipEscala := 1;
+          if (EscalaFlip = 2) or (EscalaFlip = flipEscala) then
+          begin
+            flipDirecao := 1;
+            flipReacaoLado := flipLado + 1;
+            if Mod(flipLado, 2) = 0 then
+            begin
+              flipDirecao := -1;
+              flipReacaoLado := flipLado - 1;
+            end;
+            flipBase := (flipLado - 1) * FlipCapacidade;
+
+            // Estados posteriores nao alteram os pivos nem a geometria do Flip.
+            flipTerminal := -1;
+            if flipUsados[flipLado] > 0 then
+              for flipIndice := flipBase to flipBase + flipUsados[flipLado] - 1 do
+              begin
+                if smcBarraValida and (flipEventoFalha[flipIndice] < 0) then
+                begin
+                  flipExtremoTicks := Round(flipEventoExtremoPreco[flipIndice] / smcTick);
+                  if (smcFechamentoTicks - flipExtremoTicks) * flipDirecao < 0 then
+                    flipEventoFalha[flipIndice] := smcBarra
+                  else if (flipEventoContinuacao[flipIndice] < 0)
+                    and (flipAlvoContinuacao[flipLado] > flipEventoConfirmacao[flipIndice]) then
+                    flipEventoContinuacao[flipIndice] := smcBarra;
+                end;
+                if flipEventoFalha[flipIndice] >= 0 then
+                begin
+                  if flipTerminal < 0 then
+                    flipTerminal := flipIndice
+                  else if (flipEventoFalha[flipIndice] < flipEventoFalha[flipTerminal])
+                    or ((flipEventoFalha[flipIndice] = flipEventoFalha[flipTerminal])
+                    and (flipEventoConfirmacao[flipIndice] < flipEventoConfirmacao[flipTerminal])) then
+                    flipTerminal := flipIndice;
+                end;
+              end;
+
+            flipConfirmar := False;
+            if flipFase[flipLado] <> 0 then
+            begin
+              flipSaida := 0;
+              if not smcBarraValida then
+                flipSaida := FlipDadosInvalidos
+              else if flipPivoAmbiguo[flipEscala] then
+                flipSaida := FlipOrdemAmbigua
+              else if (MaxBarrasFlip > 0) and (smcBarra - flipMeioRef[flipLado] > MaxBarrasFlip) then
+                flipSaida := FlipPrazoExcedido
+              else
+              begin
+                flipMeioTicks := Round(flipMeioPreco[flipLado] / smcTick);
+                flipExtremoTicks := Round(flipExtremoPreco[flipLado] / smcTick);
+                flipDistancia := (smcFechamentoTicks - flipMeioTicks) * flipDirecao;
+                if (Round(High[1] / smcTick) > Max(flipMeioTicks, flipExtremoTicks))
+                  and (Round(Low[1] / smcTick) < Min(flipMeioTicks, flipExtremoTicks)) then
+                  flipSaida := FlipOrdemAmbigua
+                else if (smcFechamentoTicks - flipExtremoTicks) * flipDirecao < 0 then
+                  flipSaida := FlipExtremoRompido
+                else if flipFase[flipLado] = FlipAguardaReacao then
+                begin
+                  if flipDistancia > 0 then
+                    flipSaida := FlipPerdaPrecoce;
+                end
+                else if flipCruzaEm[flipLado] >= 0 then
+                begin
+                  if flipDistancia <= 0 then
+                    flipSaida := FlipRetornouNivel
+                  else if flipDistancia >= BufferRupturaSMCTicks then
+                    flipConfirmar := True;
+                end
+                else if smcTemAnterior and (flipDistancia > 0) then
+                begin
+                  flipDistanciaAnterior := (smcAnteriorTicks - flipMeioTicks) * flipDirecao;
+                  if flipDistanciaAnterior <= 0 then
+                  begin
+                    flipGap := ((flipDirecao = 1) and (Round(Low[1] / smcTick) > flipMeioTicks))
+                      or ((flipDirecao = -1) and (Round(High[1] / smcTick) < flipMeioTicks));
+                    if flipGap and (not PermitirGapFlip) then
+                      flipSaida := FlipGapBloqueado
+                    else
+                    begin
+                      flipCruzaEm[flipLado] := smcBarra;
+                      flipConfirmar := flipDistancia >= BufferRupturaSMCTicks;
+                    end;
+                  end;
+                end;
+              end;
+
+              if (flipSaida = 0) and (flipCruzaEm[flipLado] >= 0) and (flipLegadoEm[flipLado] < 0) then
+              begin
+                flipQuebraLegada := smcBreakNaBarra[flipLado];
+                if flipQuebraLegada >= 0 then
+                  if smcEventoRef[flipQuebraLegada] = flipMeioRef[flipLado] then
+                  begin
+                    flipLegadoEm[flipLado] := smcBarra;
+                    flipLegadoTipo[flipLado] := 1;
+                    if smcEventoBrutoLo[flipQuebraLegada] = -flipDirecao then
+                      flipLegadoTipo[flipLado] := 2;
+                  end;
+              end;
+
+              if flipConfirmar then
+              begin
+                flipDestino := flipTerminal;
+                if flipUsados[flipLado] < FlipCapacidade then
+                begin
+                  flipDestino := flipBase + flipUsados[flipLado];
+                  flipUsados[flipLado] := flipUsados[flipLado] + 1;
+                end;
+                flipSaida := FlipSemVaga;
+                if flipDestino < 0 then
+                  flipSemVagaTotal := flipSemVagaTotal + 1
+                else
+                begin
+                  flipEventoExtremo[flipDestino] := flipExtremoRef[flipLado];
+                  flipEventoMeio[flipDestino] := flipMeioRef[flipLado];
+                  flipEventoReacao[flipDestino] := flipReacaoRef[flipLado];
+                  flipEventoOrigemExtremo[flipDestino] := flipExtremoOrigem[flipLado];
+                  flipEventoOrigemMeio[flipDestino] := flipMeioOrigem[flipLado];
+                  flipEventoOrigemReacao[flipDestino] := flipReacaoOrigem[flipLado];
+                  flipEventoCruzamento[flipDestino] := flipCruzaEm[flipLado];
+                  flipEventoConfirmacao[flipDestino] := smcBarra;
+                  flipEventoPublicacao[flipDestino] := CurrentBar;
+                  flipEventoData[flipDestino] := smcDataConfirmada;
+                  flipEventoHora[flipDestino] := smcHoraConfirmada;
+                  flipEventoDataMeio[flipDestino] := flipMeioDia[flipLado];
+                  flipEventoHoraMeio[flipDestino] := flipMeioHora[flipLado];
+                  flipEventoContexto[flipDestino] := 0;
+                  if (flipEscala = 0) and (Abs(flipFluxoAnterior[1]) = 1) then
+                    flipEventoContexto[flipDestino] := flipFluxoAnterior[1] * flipDirecao;
+                  flipEventoReversao[flipDestino] := (flipEscala = 1) and (flipPerdaProtecao[1] = flipDirecao);
+                  flipEventoLegado[flipDestino] := flipLegadoEm[flipLado];
+                  flipEventoTipoLegado[flipDestino] := flipLegadoTipo[flipLado];
+                  flipEventoContinuacao[flipDestino] := -1;
+                  flipEventoFalha[flipDestino] := -1;
+                  flipEventoNivel[flipDestino] := flipMeioPreco[flipLado];
+                  flipEventoExtremoPreco[flipDestino] := flipExtremoPreco[flipLado];
+                  flipEventoReacaoPreco[flipDestino] := flipReacaoPreco[flipLado];
+                  flipEventoATRMeio[flipDestino] := flipATRMeio[flipLado];
+                  flipPublicadoSlot[flipLado] := flipDestino;
+                  flipTotal := flipTotal + 1;
+                  flipSaida := FlipConfirmado;
+                end;
+              end;
+
+              if flipSaida <> 0 then
+              begin
+                flipFase[flipLado] := 0;
+                flipMotivo[flipLado] := flipSaida;
+                flipBarraMotivo[flipLado] := smcBarra;
+              end;
+            end;
+
+            if smcBarraValida and (not flipPivoAmbiguo[flipEscala]) and (flipFase[flipLado] <> FlipArmado) then
+            begin
+              flipNovoPivo := flipPivoAdmitido[flipLado];
+              if (flipNovoPivo >= 0) and (smcHistTotal[flipEscala] >= 2) then
+              begin
+                // L1/H1 acabou de entrar no historico; o pivo anterior e H0/L0.
+                flipFase[flipLado] := 0;
+                if flipFluxoAnterior[flipEscala] = -flipDirecao then
+                begin
+                  flipPivoAnterior := flipEscala * SMCHistPivos
+                    + Mod(smcHistInicio[flipEscala] + smcHistTotal[flipEscala] - 2, SMCHistPivos);
+                  flipBarraMotivo[flipLado] := smcBarra;
+                  if (ReacaoMinFlipATR > 0) and (not smcATRDisponivel) then
+                    flipMotivo[flipLado] := FlipATRIndisponivel
+                  else if (smcFechamentoTicks - Round(smcHistPreco[flipNovoPivo] / smcTick)) * flipDirecao > 0 then
+                    flipMotivo[flipLado] := FlipPerdaPrecoce
+                  else if (smcHistLado[flipPivoAnterior] = -flipDirecao)
+                    and (smcHistOrigem[flipPivoAnterior] < smcHistOrigem[flipNovoPivo]) then
+                  begin
+                    flipExtremoRef[flipLado] := smcHistConfirmacao[flipPivoAnterior];
+                    flipExtremoOrigem[flipLado] := smcHistOrigem[flipPivoAnterior];
+                    flipExtremoPreco[flipLado] := smcHistPreco[flipPivoAnterior];
+                    flipMeioRef[flipLado] := smcBarra;
+                    flipMeioOrigem[flipLado] := smcHistOrigem[flipNovoPivo];
+                    flipMeioPreco[flipLado] := smcHistPreco[flipNovoPivo];
+                    flipMeioDia[flipLado] := smcDataConfirmada;
+                    flipMeioHora[flipLado] := smcHoraConfirmada;
+                    flipATRMeio[flipLado] := smcATR;
+                    flipCruzaEm[flipLado] := -1;
+                    flipLegadoEm[flipLado] := -1;
+                    flipLegadoTipo[flipLado] := 0;
+                    flipFase[flipLado] := FlipAguardaReacao;
+                    flipMotivo[flipLado] := FlipAguardaReacao;
+                  end;
+                end;
+              end
+              else if flipFase[flipLado] = FlipAguardaReacao then
+              begin
+                flipNovoPivo := flipPivoAdmitido[flipReacaoLado];
+                if (flipNovoPivo >= 0) and (smcHistTotal[flipEscala] >= 2) then
+                begin
+                  flipPivoAnterior := flipEscala * SMCHistPivos
+                    + Mod(smcHistInicio[flipEscala] + smcHistTotal[flipEscala] - 2, SMCHistPivos);
+                  if smcHistConfirmacao[flipPivoAnterior] = flipMeioRef[flipLado] then
+                  begin
+                    flipDistancia := (Round(smcHistPreco[flipNovoPivo] / smcTick)
+                      - Round(flipExtremoPreco[flipLado] / smcTick)) * flipDirecao;
+                    flipMinimo := Max(smcTick, ReacaoMinFlipATR * flipATRMeio[flipLado]);
+                    flipBarraMotivo[flipLado] := smcBarra;
+                    if flipDistancia <= ToleranciaSMCTicks then
+                      flipMotivo[flipLado] := FlipForaTolerancia
+                    else if Abs(Round(smcHistPreco[flipNovoPivo] / smcTick)
+                      - Round(flipMeioPreco[flipLado] / smcTick)) * smcTick < flipMinimo then
+                      flipMotivo[flipLado] := FlipSemReacao
+                    else if (Round(flipMeioPreco[flipLado] / smcTick)
+                      - Round(smcHistPreco[flipNovoPivo] / smcTick)) * flipDirecao > 0 then
+                    begin
+                      flipReacaoRef[flipLado] := smcBarra;
+                      flipReacaoOrigem[flipLado] := smcHistOrigem[flipNovoPivo];
+                      flipReacaoPreco[flipLado] := smcHistPreco[flipNovoPivo];
+                      flipFase[flipLado] := FlipArmado;
+                      flipMotivo[flipLado] := FlipArmado;
+                    end;
+                  end;
+                end;
+              end;
+            end;
+          end;
+        end;
       smcTemAnterior := smcBarraValida;
     end;
   end;
+
+  // Separar os segmentos confirmados das guias provisórias. Os valores de B
+  // e dos pivos sao imutaveis, inclusive quando a barra de publicacao recalcula.
+  if flipCalcula and (ModoFaixaOB = 0) and (MostrarFlip or MostrarCandidatosFlip)
+    and (CurrentBar > 0) and (smcOrigemPublicada = CurrentBar - 1) then
+    for flipLado := 1 to 4 do
+    begin
+      flipDesenha := False;
+      flipDestino := flipPublicadoSlot[flipLado];
+      flipCor := RGB(0, 128, 0);
+      if Mod(flipLado, 2) = 0 then
+        flipCor := RGB(255, 0, 0);
+      if MostrarFlip and (flipDestino >= 0) then
+      begin
+        flipDesenha := flipEventoPublicacao[flipDestino] = CurrentBar;
+        flipNivelDesenho := flipEventoNivel[flipDestino];
+        flipInicioDia := flipEventoDataMeio[flipDestino];
+        flipInicioHora := flipEventoHoraMeio[flipDestino];
+        flipFimDia := flipEventoData[flipDestino];
+        flipFimHora := flipEventoHora[flipDestino];
+        flipTraco := 0;
+        flipLegenda := "FLIP+ I";
+        if flipLado = 2 then
+          flipLegenda := "FLIP− I"
+        else if flipLado = 3 then
+          flipLegenda := "FLIP+ S"
+        else if flipLado = 4 then
+          flipLegenda := "FLIP− S";
+      end
+      else if MostrarCandidatosFlip and LastBarOnChart and (flipFase[flipLado] = FlipArmado) then
+      begin
+        flipDesenha := True;
+        flipNivelDesenho := flipMeioPreco[flipLado];
+        flipInicioDia := flipMeioDia[flipLado];
+        flipInicioHora := flipMeioHora[flipLado];
+        flipFimDia := smcDataConfirmada;
+        flipFimHora := smcHoraConfirmada;
+        flipTraco := 1;
+        flipLegenda := "Candidato + I";
+        if flipLado = 2 then
+          flipLegenda := "Candidato − I"
+        else if flipLado = 3 then
+          flipLegenda := "Candidato + S"
+        else if flipLado = 4 then
+          flipLegenda := "Candidato − S";
+      end;
+
+      if flipDesenha then
+      begin
+        if flipLado = 1 then
+          LineSegment(flipNivelDesenho, flipNivelDesenho, flipInicioDia, flipFimDia, False, flipLegenda,
+            flipCor, 1, flipTraco, 8, 1, flipInicioHora, flipFimHora)
+        else if flipLado = 2 then
+          LineSegment(flipNivelDesenho, flipNivelDesenho, flipInicioDia, flipFimDia, False, flipLegenda,
+            flipCor, 1, flipTraco, 8, 1, flipInicioHora, flipFimHora)
+        else if flipLado = 3 then
+          LineSegment(flipNivelDesenho, flipNivelDesenho, flipInicioDia, flipFimDia, False, flipLegenda,
+            flipCor, 1, flipTraco, 8, 1, flipInicioHora, flipFimHora)
+        else
+          LineSegment(flipNivelDesenho, flipNivelDesenho, flipInicioDia, flipFimDia, False, flipLegenda,
+            flipCor, 1, flipTraco, 8, 1, flipInicioHora, flipFimHora);
+      end;
+    end;
 end;

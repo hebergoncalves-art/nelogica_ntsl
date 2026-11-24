@@ -13,6 +13,8 @@ const root = join(__dirname, '..');
 const path = 'src/indicadores/smc.ntsl';
 const commit = '53f8560259735e7cbf537636a3bd438b519f8ca3';
 const baseline = execFileSync('git', ['show', `${commit}:${path}`], { cwd: root });
+const foundationCommit = 'acc5ffb6df32353b3fbc3d29b8b0e99c1ceb0291';
+const foundation = execFileSync('git', ['show', `${foundationCommit}:${path}`], { cwd: root });
 const candidate = readFileSync(join(root, path));
 const sha = (data) => createHash('sha256').update(data).digest('hex');
 
@@ -76,7 +78,7 @@ function compile(source) {
       want('of');
     }
     const type = take();
-    assert.ok(['integer', 'float', 'boolean'].includes(type));
+    assert.ok(['integer', 'float', 'boolean', 'string'].includes(type));
     want(';');
     for (const name of names) {
       assert.ok(!variables.has(name) && !Object.hasOwn(inputs, name) && !Object.hasOwn(constants, name), name);
@@ -177,6 +179,7 @@ function compile(source) {
 }
 
 function defaultValue(type) {
+  if (type === 'string') return '';
   return type === 'boolean' ? false : 0;
 }
 
@@ -247,7 +250,7 @@ function runtime(program, bars, overrides = {}, tick = 1) {
         for (let lag = 1; lag < count; lag++) result = select(result, model.get(field, lag));
         return result;
       }
-      assert.match(name, /^(plot[234]?|plottext|noplot|setplotcolor|setplotwidth|horizontallinecustom)$/);
+      assert.match(name, /^(plot[234]?|plottext|noplot|setplotcolor|setplotwidth|horizontallinecustom|linesegment)$/);
       drawing.push([name, ...args]);
       return 0;
     },
@@ -263,6 +266,7 @@ function runtime(program, bars, overrides = {}, tick = 1) {
 }
 
 const original = compile(baseline);
+const accepted = compile(foundation);
 const updated = compile(candidate);
 
 function dated(rows) {
@@ -359,22 +363,22 @@ function fact(lane, origin, price, previousBias = 0) {
   return { lane, origin, price, previousBias };
 }
 
+function stageFacts(model, bar, rows) {
+  const frame = bar % 2;
+  model.set('smclotes', rows.length, frame);
+  rows.forEach(({ lane, origin, price, previousBias }, offset) => {
+    const slot = frame * model.get('smclote') + offset;
+    const values = { faixa: lane, origem: origin, ref: -1, nascimento: bar, estado: 1, lo: price,
+      hi: price, brutolo: previousBias, brutohi: lane % 2 === 1 ? 1 : -1 };
+    for (const [field, value] of Object.entries(values)) model.set('smcevento' + field, value, slot);
+  });
+}
+
 function scripted(closes, entries, overrides = {}, tick = 1) {
   const bars = dated(closes.map((close) => [close, Math.max(130, close), Math.min(70, close), close]));
   const model = runtime(updated, bars, { DebugSMC: true, PeriodoSwing: 500, ...overrides }, tick);
   bars.forEach((_, index) => {
-    if (index > 0) {
-      const bar = index - 1;
-      const frame = bar % 2;
-      const rows = entries[bar] ?? [];
-      model.set('smclotes', rows.length, frame);
-      rows.forEach(({ lane, origin, price, previousBias }, offset) => {
-        const slot = frame * model.get('smclote') + offset;
-        const values = { faixa: lane, origem: origin, ref: -1, nascimento: bar, estado: 1, lo: price,
-          hi: price, brutolo: previousBias, brutohi: lane % 2 === 1 ? 1 : -1 };
-        for (const [field, value] of Object.entries(values)) model.set('smcevento' + field, value, slot);
-      });
-    }
+    if (index > 0) stageFacts(model, index - 1, entries[index - 1] ?? []);
     model.step(index);
   });
   return model;
@@ -385,12 +389,82 @@ const labels = (trace) => trace.flat().filter(([name]) => name === 'plottext').m
 const horizontal = (calls, label) => calls.filter(([name, , , , , title]) =>
   name === 'horizontallinecustom' && (label === undefined || title === label));
 
+function flipArchive(model, lane) {
+  const size = model.element('flipusados', lane);
+  return Array.from({ length: size }, (_, offset) => Object.fromEntries([
+    'extremo', 'meio', 'reacao', 'origemextremo', 'origemmeio', 'origemreacao', 'cruzamento',
+    'confirmacao', 'publicacao', 'data', 'hora', 'datameio', 'horameio',
+    'contexto', 'legado', 'tipolegado', 'continuacao', 'falha', 'reversao', 'nivel', 'extremopreco', 'reacaopreco', 'atrmeio',
+  ].map((field) => [field, model.element('flipevento' + field, (lane - 1) * 100 + offset)])));
+}
+
+const flipCloses = [92, 92, 94, 90, 92, 98, 100, 95, 100, 109, 106, 104, 105, 110, 108, 99];
+
+function flipFixture(scale = 1, side = -1, { closes = flipCloses, events = {}, envelope, config = {},
+  before = () => {}, after = () => {}, repeat = false, historical = false } = {}) {
+  const first = 2 * scale + 1;
+  const script = {
+    2: [[1, 1, 95]],
+    4: [[2, 3, 80]],
+    6: [[1, 5, 105]],
+    8: [[2, 7, 90]],
+    9: [[5, 5, 105, 1]],
+    10: [[1, 9, 120]],
+    12: [[2, 11, 100]],
+    14: [[1, 13, 112]],
+    ...events,
+  };
+  const rows = closes.map((close, index) => envelope?.[index] ?? [close, close + 4, close - 4, close]);
+  const bars = dated(side === -1 ? rows : rows.map(([o, h, l, c]) => [200 - o, 200 - l, 200 - h, 200 - c]));
+  bars.push(dated([[100, 101, 99, 100]])[0]);
+  const model = runtime(updated, bars, {
+    PeriodoSwing: 500, PeriodoATRSMC: 3, HabilitarFlip: true, EscalaFlip: scale, MostrarFlip: true, ...config,
+  });
+  const lane = first + (side === -1 ? 1 : 0);
+  const trace = [];
+  const progress = [];
+  for (let index = 0; index < bars.length; index++) {
+    if (index > 0 && model.get('smccalcula')) {
+      const bar = index - 1;
+      const peaks = (script[bar] ?? []).map(([rawLane, origin, price, previousBias = 0]) => {
+        const remapped = side === -1 ? rawLane : rawLane % 2 === 0 ? rawLane - 1 : rawLane + 1;
+        return fact(remapped + 2 * scale, origin, side === -1 ? price : 200 - price, -side * previousBias);
+      });
+      stageFacts(model, bar, peaks);
+    }
+    before(model, index, lane);
+    const isLast = !historical || index === bars.length - 1;
+    const drawing = model.step(index, isLast);
+    trace.push(drawing);
+    if (repeat) {
+      const total = model.get('fliptotal');
+      const beforeTick = flipArchive(model, lane);
+      assert.deepEqual(model.step(index, isLast), drawing);
+      assert.equal(model.get('fliptotal'), total);
+      assert.deepEqual(flipArchive(model, lane), beforeTick);
+    }
+    progress.push([model.element('flipfase', lane), model.element('flipmotivo', lane)]);
+    after(model, index, lane);
+  }
+  return { model, events: flipArchive(model, lane), trace, progress, bars, lane };
+}
+
+function segments(calls) {
+  return calls.filter(([name]) => name === 'linesegment');
+}
+
 const cases = {
   B01() {
     assert.equal(sha(baseline), 'adb3ce8479a06291df0eb32ce4bddd15dc2ee3919d296cdd54be5ce45ec6ab94');
     assert.deepEqual(Object.entries(updated.inputs).slice(0, 26), Object.entries(original.inputs));
-    assert.deepEqual(Object.entries(updated.inputs).slice(26), [
+    assert.deepEqual(Object.entries(updated.inputs).slice(26, 30), [
       ['periodoatrsmc', 14], ['toleranciasmcticks', 1], ['bufferrupturasmcticks', 1], ['debugsmc', false],
+    ]);
+    assert.equal(sha(foundation), '37b2bd0f549b2073a811141725aabc369a78d75da5775d5bbb434493858b7e51');
+    assert.deepEqual(Object.entries(updated.inputs).slice(0, 30), Object.entries(accepted.inputs));
+    assert.deepEqual(Object.entries(updated.inputs).slice(30), [
+      ['habilitarflip', false], ['mostrarflip', false], ['escalaflip', 2], ['reacaominflipatr', 0.5],
+      ['maxbarrasflip', 100], ['permitirgapflip', true], ['mostrarcandidatosflip', false],
     ]);
     for (const [name, value] of Object.entries(original.constants)) assert.equal(updated.constants[name], value, name);
     return 'hash de referência, 26 inputs e constantes legadas conferidos. Compilação PENDENTE';
@@ -615,7 +689,7 @@ const cases = {
     return 'seis limites, um rótulo por zona, faixa em duas sessões e redefinição a partir de t+1';
   },
   B09() {
-    function breaker(mirror, { enabled = true, order = 1, bounce = false, edge = false } = {}) {
+    function breaker(mirror, { enabled = true, order = 1, bounce = false, edge = false, flip = false } = {}) {
       const pre = [105, 110, 100, 105];
       const down = [pre, pre, pre, [116, 120, 106, bounce ? 112 : 108],
         [108, 109, 101, 103], [102, 102, 97, 99], [100, 110, 99, 109],
@@ -625,6 +699,7 @@ const cases = {
       for (let index = 6; index < bars.length; index++) bars[index][4] = 1261103;
       return compare(bars, {
         ModoFaixaOB: mirror ? 2 : 1, OrdemFaixaOB: order, MostrarBreakerBlocks: enabled, FiltroAutomaticoFVG: false,
+        HabilitarFlip: flip, MostrarFlip: flip,
       }, (model, index, variant) => {
         if (index !== 3) return;
         seedBlocks(model, 2, 1, mirror
@@ -635,6 +710,7 @@ const cases = {
     for (const mirror of [false, true]) {
       for (const order of [1, 2]) {
         const trace = breaker(mirror, { order });
+        assert.deepEqual(breaker(mirror, { order, flip: true }), trace);
         assert.equal(horizontal(trace[5], 'Breaker').length, 0);
         const published = horizontal(trace[6], 'Breaker')[0];
         assert.deepEqual([published[1], published[2], published[8], published[10]], [
@@ -812,6 +888,182 @@ const cases = {
     assert.equal(archived(full, 13)[0].nascimento, 200);
     assert.equal(full.element('smceventoqualificacao', 0), 17);
     return `100 por partição, ativos preservados e CAPACITY_FULL. Mediana local em ms, referência/off/on ${[reference, quiet, debug].map(({ elapsed }) => elapsed.toFixed(1)).join('/')}`;
+  },
+  F01() {
+    for (const scale of [0, 1]) {
+      for (const side of [1, -1]) {
+        const fixture = flipFixture(scale, side);
+        assert.equal(fixture.events.length, 1);
+        const event = fixture.events[0];
+        assert.deepEqual([event.extremo, event.meio, event.reacao], [10, 12, 14]);
+        assert.deepEqual([event.origemextremo, event.origemmeio, event.origemreacao], [9, 11, 13]);
+        assert.deepEqual([event.nivel, event.extremopreco, event.reacaopreco], side === -1 ? [100, 120, 112] : [100, 80, 88]);
+        assert.deepEqual([event.cruzamento, event.confirmacao, event.publicacao], [15, 15, 16]);
+        assert.equal(fixture.progress[15][0], 2);
+        assert.equal(fixture.trace.slice(0, 16).flatMap(segments).length, 0);
+        const [line] = segments(fixture.trace[16]);
+        assert.deepEqual(line, ['linesegment', 100, 100, fixture.bars[12][4], fixture.bars[15][4], false,
+          `FLIP${side === 1 ? '+' : '−'} ${scale === 0 ? 'I' : 'S'}`, side === 1 ? 32768 : 255,
+          1, 0, 8, 1, fixture.bars[12][5], fixture.bars[15][5]]);
+      }
+    }
+    assert.equal(flipFixture(0, -1, { config: { EscalaFlip: 1 } }).events.length, 0);
+    assert.equal(flipFixture(1, -1, { config: { EscalaFlip: 0 } }).events.length, 0);
+    assert.equal(flipFixture(0, -1, { config: { EscalaFlip: 2 } }).events.length, 1);
+    const invalid = flipFixture(1, -1, { config: { EscalaFlip: 3 } });
+    assert.equal(invalid.model.get('flipconfigvalida'), false);
+    assert.equal(invalid.events.length, 0);
+    return 'compra e venda em ambas as escalas, IDs, preço, rótulo, escala e publicação B+1';
+  },
+  F02() {
+    const unavailable = flipFixture(1, -1, { config: { PeriodoATRSMC: 14 } });
+    assert.deepEqual(unavailable.progress[13], [0, 11]);
+    assert.equal(unavailable.events.length, 0);
+    assert.equal(flipFixture(1, -1, { config: { PeriodoATRSMC: 14, ReacaoMinFlipATR: 0 } }).events.length, 1);
+    const insufficient = flipFixture(1, -1, { config: { ReacaoMinFlipATR: 2 } });
+    assert.deepEqual(insufficient.progress[15], [1, 12]);
+    const equal = flipFixture(1, -1, { events: { 14: [[1, 13, 119]] } });
+    assert.deepEqual(equal.progress[15], [1, 13]);
+    const currentFlow = flipFixture(1, -1, {
+      closes: [...flipCloses.slice(0, 9), 100, 100, 100, 106, ...flipCloses.slice(13)],
+      events: { 9: [], 10: [], 12: [[2, 11, 100], [5, 5, 105]] },
+    });
+    assert.equal(currentFlow.model.element('smcfluxo', 1), 1);
+    assert.equal(currentFlow.events.length, 0);
+    return 'fluxo prévio, ATR indisponível ou insuficiente, reação mínima em ticks e tolerância estrita';
+  },
+  F03() {
+    const early = flipFixture(1, -1, { events: { 14: [], 15: [[1, 13, 112]] } });
+    assert.deepEqual(early.progress[16], [0, 4]);
+    assert.equal(early.events.length, 0);
+    const overwritten = flipFixture(1, -1, { closes: [...flipCloses.slice(0, 15), 101, 99],
+      events: { 15: [[2, 14, 98]] } });
+    assert.equal(overwritten.events.length, 1);
+    assert.deepEqual([overwritten.events[0].meio, overwritten.events[0].legado, overwritten.events[0].confirmacao], [12, -1, 16]);
+    const linked = flipFixture(1, -1, { events: { 15: [[6, 11, 100, 1]] } });
+    assert.deepEqual([linked.events[0].legado, linked.events[0].tipolegado], [15, 2]);
+    const touch = flipFixture(1, -1, { closes: [...flipCloses.slice(0, 15), 100, 101, 99] });
+    assert.deepEqual(touch.progress.slice(16, 18), [[2, 2], [2, 2]]);
+    assert.equal(touch.events[0].confirmacao, 17);
+    assert.deepEqual(segments(touch.trace[18])[0].slice(3, 5), [touch.bars[12][4], touch.bars[17][4]]);
+    assert.notEqual(touch.bars[12][4], touch.bars[17][4]);
+    return 'reação tardia rejeitada, pavio e toque preservam, nível congelado e vínculo legado opcional';
+  },
+  F04() {
+    const series = [...flipCloses, 98, 97];
+    const pending = flipFixture(1, -1, { closes: series, config: { BufferRupturaSMCTicks: 3 },
+      events: { 15: [[6, 11, 100, 1]] } });
+    assert.deepEqual([pending.events[0].cruzamento, pending.events[0].legado, pending.events[0].confirmacao], [15, 15, 17]);
+    const returned = flipFixture(1, -1, { closes: [...flipCloses, 100, 97], config: { BufferRupturaSMCTicks: 3 } });
+    assert.equal(returned.events.length, 0);
+    assert.deepEqual(returned.progress[17], [0, 10]);
+    assert.equal(flipFixture(1, -1, { config: { MaxBarrasFlip: 3 } }).events.length, 1);
+    assert.deepEqual(flipFixture(1, -1, { config: { MaxBarrasFlip: 2 } }).progress[16], [0, 6]);
+    assert.equal(flipFixture(1, -1, { config: { MaxBarrasFlip: 0 } }).events.length, 1);
+    const zero = flipFixture(1, -1, { closes: [...flipCloses.slice(0, 15), 100, 99],
+      config: { BufferRupturaSMCTicks: 0 } });
+    assert.equal(zero.events[0].confirmacao, 16);
+    return 'primeiro cruzamento, buffer posterior, retorno e prazo inclusivo ou ilimitado';
+  },
+  F05() {
+    for (const [envelope, config, reason] of [
+      [{ 15: [99, 99, 97, 99] }, { PermitirGapFlip: false }, 9],
+      [{ 15: [108, 121, 98, 99] }, {}, 8],
+      [{ 15: [99, 98, 95, 99] }, {}, 7],
+      [{ 15: [115, 123, 109, 121] }, {}, 5],
+    ]) {
+      const test = flipFixture(1, -1, { envelope, config });
+      assert.deepEqual(test.progress[16], [0, reason]);
+      assert.equal(test.events.length, 0);
+    }
+    assert.equal(flipFixture(1, -1, { envelope: { 15: [99, 99, 97, 99] } }).events.length, 1);
+    return 'gap permitido/bloqueado, dupla penetração, OHLC inválido e extremo original';
+  },
+  F06() {
+    for (const context of [0, 1, -1]) {
+      const test = flipFixture(0, -1, { before(model, index) {
+        if (index === 16) model.set('smcfluxo', -context, 1);
+      } });
+      assert.equal(test.events[0].contexto, context);
+      assert.equal(test.events[0].reversao, false);
+    }
+    const external = flipFixture(1, -1, { closes: [...flipCloses.slice(0, 15), 89] });
+    assert.equal(external.events[0].reversao, true);
+    assert.equal(flipFixture().events[0].reversao, false);
+    const subsequent = flipFixture(1, -1, {
+      closes: [...flipCloses, 98, 99, 102, 103, 94, 100, 121],
+      events: { 17: [[2, 16, 96]], 19: [[1, 18, 107]], 20: [[6, 16, 96, -1]] },
+      repeat: true,
+    });
+    assert.deepEqual(subsequent.events.map(({ confirmacao, nivel, continuacao, falha }) => [confirmacao, nivel, continuacao, falha]),
+      [[15, 100, 20, 22], [20, 96, -1, 22]]);
+    assert.deepEqual(subsequent.trace.flatMap(segments).map((line) => line[1]), [100, 96]);
+    return 'contextos interno/externo, perda protegida swing, continuação e falha preservam o evento original';
+  },
+  F07() {
+    function filled(terminal) {
+      return flipFixture(1, -1, { before(model, index, lane) {
+        if (index !== 16) return;
+        model.set('flipusados', 100, lane);
+        const base = (lane - 1) * 100;
+        for (let index = base; index < base + 100; index++) {
+          model.set('flipeventofalha', index === base && terminal ? 3 : -1, index);
+          model.set('flipeventoextremopreco', 130, index);
+          model.set('flipeventocontinuacao', -1, index);
+        }
+      } });
+    }
+    const full = filled(false);
+    assert.deepEqual(full.progress[16], [0, 17]);
+    assert.equal(full.model.get('flipsemvagatotal'), 1);
+    assert.equal(full.model.get('fliptotal'), 0);
+    assert.equal(segments(full.trace[16]).length, 0);
+    const recycled = filled(true);
+    assert.equal(recycled.events.length, 100);
+    assert.equal(recycled.events[0].confirmacao, 15);
+    assert.equal(recycled.model.get('fliptotal'), 1);
+    return 'cap de 100 por partição, rejeição sem sobrescrever ativos e reciclagem de terminal';
+  },
+  F08() {
+    const shown = flipFixture(1, -1, { repeat: true, config: { MostrarCandidatosFlip: true } });
+    assert.equal(segments(shown.trace[15])[0][6], 'Candidato − S');
+    assert.equal(segments(shown.trace[16])[0][6], 'FLIP− S');
+    const hidden = flipFixture(1, -1, { repeat: true, config: { MostrarFlip: false } });
+    assert.deepEqual(hidden.events, shown.events);
+    assert.equal(hidden.trace.flatMap(segments).length, 0);
+    const reload = flipFixture(1, -1, { historical: true });
+    assert.deepEqual(reload.events, shown.events);
+    const exclusive = flipFixture(1, -1, { config: { ModoFaixaOB: 1, MostrarCandidatosFlip: true } });
+    assert.deepEqual(exclusive.events, shown.events);
+    assert.equal(exclusive.trace.flatMap(segments).length, 0);
+    return 'mesmos registros após recarga e reavaliação, guias opcionais e desenho apenas no modo 0';
+  },
+  F09() {
+    for (const DebugSMC of [false, true]) {
+      for (const ModoFaixaOB of [0, 1, 2, 3, 4]) {
+        const options = { DebugSMC, ModoFaixaOB, PeriodoSwing: 10, MostrarPivos: true, MostrarEstruturaInterna: DebugSMC,
+          MostrarBlocosSwing: true, MostrarBlocosInternos: DebugSMC, MostrarEQHEQL: true, MostrarFVG: true,
+          MostrarZonasPD: true, MostrarBreakerBlocks: true };
+        const ref = runtime(accepted, prices, options);
+        const off = runtime(updated, prices, { ...options, MostrarFlip: true });
+        const on = runtime(updated, prices, { ...options, HabilitarFlip: true, MostrarFlip: true });
+        let segmentsDrawn = 0;
+        for (let bar = 0; bar < prices.length; bar++) {
+          const legacy = ref.step(bar);
+          assert.deepEqual(off.step(bar), legacy);
+          const withFlip = on.step(bar);
+          assert.deepEqual(withFlip.filter(([draw]) => draw !== 'linesegment'), legacy);
+          segmentsDrawn += segments(withFlip).length;
+        }
+        if (ModoFaixaOB === 0) {
+          assert.ok(on.get('fliptotal') > 0);
+          assert.equal(segmentsDrawn, on.get('fliptotal'));
+          if (!DebugSMC) assert.ok(archived(on, 1).length > 0);
+        } else assert.equal(segmentsDrawn, 0);
+        for (let lane = 1; lane <= 19; lane++) assert.deepEqual(archived(off, lane), archived(ref, lane));
+      }
+    }
+    return 'comparação com smc-08a em 850 barras, cinco modos e os dois estados de DebugSMC, com Flips gerados pelo fonte';
   },
 };
 
