@@ -1,6 +1,6 @@
 # 09B — Zonas de oferta e demanda do Flip
 
-Status: ready-for-human
+Status: accepted
 
 A entrega aplica as seções B2, F e G da [especificação](../SPEC_evolucao.md) ao Flip confirmado na [09A](09A-flip-estrutural.md). A referência da 09A é o commit `cbcf1d71ffd014f7908030f25c81f1d3f2c3de5e`.
 
@@ -24,7 +24,7 @@ A entrega aplica as seções B2, F e G da [especificação](../SPEC_evolucao.md)
 
 A revisão `e0c5dd8b9517f190f28953c6ffc030e3dffb558c8d372ca92d5b96bc2751c7cf` retornou erros de sintaxe no Profit. O primeiro erro, em `Parser[2551,19]`, apontou para o `and` do teste de interseção entre candle e zona. A revisão atual agrupa cada comparação inteira entre parênteses, seguindo o padrão das demais expressões booleanas do indicador. A versão do Profit usada nessa tentativa não foi informada.
 
-Compilação da revisão corrigida, Replay, renderização e aceite da 09B estão pendentes.
+O usuário informou que os testes da 09B passaram e autorizou a próxima entrega. A revisão de referência está no commit `938ebaa`. Versão do Profit, ativo, período, parâmetros e evidências individuais da execução não foram informados.
 
 1. Compilar a revisão acima e aplicar o indicador com `ModoFaixaOB=0`, `HabilitarFlip=True`, `MostrarFlip=True` e `MostrarFaixasFlip=True`. Conferir em Replay se a faixa ancora em B e surge em B+1. Comparar FULL, REFINED e BASE em compra e venda, nas escalas interna e swing.
 2. Conferir o meio opcional, a extensão entre sessões e o término das invalidadas no candle correspondente. Testar a opção cinza e o desenho com faixas ocultas nos modos exclusivos.
