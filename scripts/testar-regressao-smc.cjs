@@ -1,0 +1,827 @@
+'use strict';
+
+// Executa o subconjunto de NTSL usado pelo indicador, com séries, arrays e
+// chamadas de desenho simuladas. O Editor do Profit é o teste da plataforma.
+const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
+const { createHash } = require('node:crypto');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
+const { performance } = require('node:perf_hooks');
+
+const root = join(__dirname, '..');
+const path = 'src/indicadores/smc.ntsl';
+const commit = '53f8560259735e7cbf537636a3bd438b519f8ca3';
+const baseline = execFileSync('git', ['show', `${commit}:${path}`], { cwd: root });
+const candidate = readFileSync(join(root, path));
+const sha = (data) => createHash('sha256').update(data).digest('hex');
+
+const binary = {
+  or: [1, '||'], and: [2, '&&'], '=': [3, '==='], '<>': [3, '!=='],
+  '<': [3, '<'], '>': [3, '>'], '<=': [3, '<='], '>=': [3, '>='],
+  '+': [4, '+'], '-': [4, '-'], '*': [5, '*'], '/': [5, '/'],
+};
+
+function compile(source) {
+  const tokens = source.toString().match(/\/\/[^\r\n]*|"[^"]*"|\d+(?:\.\d+)?|[A-Za-z_]\w*|:=|<>|<=|>=|\.\.|[^\s]/g)
+    .filter((token) => !token.startsWith('//'))
+    .map((token) => token.startsWith('"') ? token : token.toLowerCase());
+  const constants = { true: true, false: false };
+  const inputs = {};
+  const variables = new Map();
+  const series = new Set();
+  let at = 0;
+  let loops = 0;
+  const peek = () => tokens[at];
+  const take = () => tokens[at++];
+  const eat = (token) => peek() === token && Boolean(take());
+  function want(token) {
+    assert.equal(take(), token, `token ${at}: ${tokens.slice(at - 4, at + 4).join(' ')}`);
+  }
+  function value(token) {
+    if (Object.hasOwn(constants, token)) return constants[token];
+    if (/^cl\w+$/.test(token)) return token;
+    assert.match(token, /^\d+(?:\.\d+)?$/);
+    return Number(token);
+  }
+  want('const');
+  while (!eat('input')) {
+    const name = take();
+    want('=');
+    constants[name] = value(take());
+    want(';');
+  }
+  while (!eat('var')) {
+    const name = take();
+    want('(');
+    inputs[name] = value(take());
+    want(')');
+    want(';');
+  }
+  function bound() {
+    const first = value(take());
+    return eat('-') ? first - value(take()) : first;
+  }
+  while (peek() !== 'begin') {
+    const names = [take()];
+    while (eat(',')) names.push(take());
+    want(':');
+    let range;
+    if (eat('array')) {
+      want('[');
+      const first = bound();
+      want('..');
+      range = [first, bound()];
+      want(']');
+      want('of');
+    }
+    const type = take();
+    assert.ok(['integer', 'float', 'boolean'].includes(type));
+    want(';');
+    for (const name of names) {
+      assert.ok(!variables.has(name) && !Object.hasOwn(inputs, name) && !Object.hasOwn(constants, name), name);
+      variables.set(name, { type, range });
+    }
+  }
+
+  const quoted = JSON.stringify;
+  function call(name) {
+    const args = [];
+    if (!eat(')')) {
+      do {
+        if ((name === 'highest' || name === 'lowest') && args.length === 0) {
+          args.push(quoted(take()));
+        } else {
+          args.push(expr());
+        }
+      } while (eat(','));
+      want(')');
+    }
+    return `m.call(${quoted(name)},[${args.join(',')}])`;
+  }
+  function expr(minimum = 1) {
+    let lhs;
+    const token = take();
+    if (token === 'not' || token === '-' || token === '+') {
+      lhs = `(${token === 'not' ? '!' : token}${expr(6)})`;
+    } else if (token === '(') {
+      lhs = expr();
+      want(')');
+    } else if (/^\d|^"/.test(token)) {
+      lhs = token;
+    } else {
+      assert.match(token, /^\w+$/);
+      if (eat('(')) {
+        lhs = call(token);
+      } else if (eat('[')) {
+        const offset = expr();
+        want(']');
+        const array = variables.get(token)?.range;
+        if (!array) series.add(token);
+        lhs = `m.${array ? 'element' : 'get'}(${quoted(token)},${offset})`;
+      } else {
+        lhs = `m.get(${quoted(token)})`;
+      }
+    }
+    while (binary[peek()]?.[0] >= minimum) {
+      const [precedence, operator] = binary[take()];
+      lhs = `(${lhs}${operator}${expr(precedence + 1)})`;
+    }
+    return lhs;
+  }
+  function statement() {
+    if (eat('begin')) {
+      const body = [];
+      while (!eat('end')) {
+        body.push(statement());
+        if (peek() !== 'end') want(';');
+      }
+      return `{${body.join('')}}`;
+    }
+    if (eat('if')) {
+      const test = expr();
+      want('then');
+      const positive = statement();
+      const negative = eat('else') ? `else{${statement()}}` : '';
+      return `if(${test}){${positive}}${negative}`;
+    }
+    if (eat('for')) {
+      const name = take();
+      want(':=');
+      const first = expr();
+      const direction = take();
+      assert.ok(['to', 'downto'].includes(direction));
+      const last = expr();
+      want('do');
+      const body = statement();
+      const id = loops++;
+      const ascending = direction === 'to';
+      return `{const first=${first},limit=${last};for(let i${id}=first;i${id}${ascending ? '<=' : '>='}limit;i${id}${ascending ? '++' : '--'}){m.set(${quoted(name)},i${id});${body}}}`;
+    }
+    const name = take();
+    if (eat('(')) return `${call(name)};`;
+    let offset;
+    if (eat('[')) {
+      offset = expr();
+      want(']');
+      assert.ok(variables.get(name)?.range, name);
+    }
+    want(':=');
+    assert.ok(variables.has(name), name);
+    return `m.set(${quoted(name)},${expr()}${offset ? `,${offset}` : ''});`;
+  }
+  const code = statement();
+  assert.ok(eat(';') || eat('.'));
+  assert.equal(at, tokens.length);
+  return { execute: new Function('m', code), constants, inputs, variables, series };
+}
+
+function defaultValue(type) {
+  return type === 'boolean' ? false : 0;
+}
+
+function calcDate(date, days) {
+  const value = new Date(Date.UTC(1900 + Math.trunc(date / 10000), Math.trunc(date / 100) % 100 - 1, date % 100));
+  value.setUTCDate(value.getUTCDate() + days);
+  return (value.getUTCFullYear() - 1900) * 10000 + (value.getUTCMonth() + 1) * 100 + value.getUTCDate();
+}
+
+function runtime(program, bars, overrides = {}, tick = 1) {
+  const { variables, constants, series, execute } = program;
+  const inputs = { ...program.inputs, ...Object.fromEntries(Object.entries(overrides).map(([key, value]) => [key.toLowerCase(), value])) };
+  const values = new Map();
+  const arrays = new Map();
+  for (const [name, entry] of variables) {
+    const { range, type } = entry;
+    if (range) arrays.set(name, Array(range[1] - range[0] + 1).fill(defaultValue(type)));
+    else if (series.has(name)) values.set(name, []);
+    else values.set(name, defaultValue(type));
+  }
+  const candleFields = { open: 0, high: 1, low: 2, close: 3, date: 4, time: 5 };
+  let index = 0;
+  let last = false;
+  let drawing;
+  function arrayOffset(name, position) {
+    const [start, end] = variables.get(name).range;
+    if (!(Number.isInteger(position) && position >= start && position <= end)) {
+      throw new Error(`barra ${index}, ${name}[${position}] fora de [${start}..${end}]`);
+    }
+    return position - start;
+  }
+  const model = {
+    get(name, lag = 0) {
+      if (name === 'currentbar') return index;
+      if (name === 'lastbaronchart') return last;
+      if (name === 'minpriceincrement') return tick;
+      if (Object.hasOwn(candleFields, name)) return bars[index - lag]?.[candleFields[name]] ?? 0;
+      if (Object.hasOwn(inputs, name)) return inputs[name];
+      if (Object.hasOwn(constants, name)) return constants[name];
+      if (/^cl\w+$/.test(name)) return name;
+      assert.ok(values.has(name), name);
+      if (series.has(name)) return values.get(name)[index - lag] ?? defaultValue(variables.get(name).type);
+      return values.get(name);
+    },
+    element(name, position) {
+      return arrays.get(name)[arrayOffset(name, position)];
+    },
+    set(name, value, position) {
+      const { type } = variables.get(name);
+      if (type === 'integer') value = Math.trunc(value);
+      if (type === 'boolean') value = Boolean(value);
+      if (position !== undefined) arrays.get(name)[arrayOffset(name, position)] = value;
+      else if (series.has(name)) values.get(name)[index] = value;
+      else values.set(name, value);
+    },
+    call(name, args) {
+      if (name === 'abs') return Math.abs(...args);
+      if (name === 'mod') return args[0] % args[1];
+      if (name === 'max') return Math.max(...args);
+      if (name === 'min') return Math.min(...args);
+      if (name === 'round') return Math.sign(args[0]) * Math.round(Math.abs(args[0]));
+      if (name === 'calcdate') return calcDate(...args);
+      if (name === 'rgb') return args[0] + 256 * args[1] + 65536 * args[2];
+      if (name === 'highest' || name === 'lowest') {
+        const [field, count] = args;
+        let result = model.get(field);
+        const select = name === 'highest' ? Math.max : Math.min;
+        for (let lag = 1; lag < count; lag++) result = select(result, model.get(field, lag));
+        return result;
+      }
+      assert.match(name, /^(plot[234]?|plottext|noplot|setplotcolor|setplotwidth|horizontallinecustom)$/);
+      drawing.push([name, ...args]);
+      return 0;
+    },
+    step(bar, isLast = true) {
+      index = bar;
+      last = isLast;
+      drawing = [];
+      execute(model);
+      return drawing;
+    },
+  };
+  return model;
+}
+
+const original = compile(baseline);
+const updated = compile(candidate);
+
+function dated(rows) {
+  return rows.map((row, index) => {
+    const minutes = 570 + (index % 16) * 5;
+    return [...row, calcDate(1261102, Math.floor(index / 16)), Math.floor(minutes / 60) * 100 + minutes % 60];
+  });
+}
+
+function swingBars() {
+  const hlc = [
+    [110, 80, 95], [120, 90, 95], ...Array(10).fill([110, 90, 95]),
+    [123, 90, 121], [124, 90, 122], [100, 70, 80], [100, 74, 75],
+    ...Array(9).fill([100, 90, 95]), [100, 68, 69], [110, 67, 90],
+    ...Array(10).fill([100, 90, 95]), [112, 90, 111], [113, 90, 112],
+    [110, 90, 109], [113, 90, 111],
+  ];
+  return dated(hlc.map(([high, low, close]) => [close, high, low, close]));
+}
+
+function generated(count) {
+  let seed = 26;
+  let price = 10000;
+  function random(limit) {
+    seed = (Math.imul(1664525, seed) + 1013904223) >>> 0;
+    return (seed >>> 8) % limit;
+  }
+  return dated(Array.from({ length: count }, () => {
+    const open = price + random(29) - 14;
+    price = open + random(31) - 15;
+    return [open, Math.max(open, price) + random(10), Math.min(open, price) - random(10), price];
+  }));
+}
+
+function archived(model, lane) {
+  const count = model.element('smcusados', lane);
+  const start = model.get('smcbasehistorico') + (lane - 1) * model.get('smccapacidade');
+  return Array.from({ length: count }, (_, offset) => {
+    const index = start + offset;
+    return Object.fromEntries([
+      'nascimento', 'origem', 'ref', 'lo', 'hi', 'brutolo', 'brutohi', 'estado', 'terminal',
+      'qualificacao', 'barraqualificacao', 'confirmacao', 'publicacao', 'data', 'hora', 'dataorigem', 'horaorigem',
+      'dataterminal', 'horaterminal', 'atr', 'atrvalido', 'dadosvalidos',
+    ].map((field) => [field, model.element('smcevento' + field, index)]));
+  }).sort((left, right) => left.nascimento - right.nascimento);
+}
+
+function compare(bars, overrides = {}, configure = () => {}, inspect = () => {}) {
+  const reference = runtime(original, bars, overrides);
+  const quiet = runtime(updated, bars, { ...overrides, DebugSMC: false });
+  const debug = runtime(updated, bars, { ...overrides, DebugSMC: true });
+  const trace = [];
+  bars.forEach((_, index) => {
+    [reference, quiet, debug].forEach((model, variant) => configure(model, index, variant));
+    const expected = reference.step(index);
+    assert.deepEqual(quiet.step(index), expected, `desenho com debug OFF na barra ${index}`);
+    assert.deepEqual(debug.step(index), expected, `desenho com debug ON na barra ${index}`);
+    inspect(reference, quiet, debug, index);
+    trace.push(expected);
+  });
+  return { trace, debug };
+}
+
+function blockList(model, bar, group) {
+  const list = bar % 3 * 2 + group;
+  const start = list * 100 + 1;
+  const size = model.element('quantidadesblocos', list);
+  return Array.from({ length: size }, (_, offset) => [
+    'direcoes', 'inferioresblocos', 'superioresblocos', 'datasblocos', 'horasblocos', 'criacoesblocos',
+  ].map((field) => model.element(field, start + offset)));
+}
+
+function seedBlocks(model, bar, group, blocks, debug) {
+  const list = bar % 3 * 2 + group;
+  const start = list * 100 + 1;
+  model.set('carimbosblocos', bar + 1, bar % 3);
+  model.set('quantidadesblocos', blocks.length, list);
+  blocks.forEach(({ side = 1, low, high, date = 1261102, time = 930, birth = 0 }, offset) => {
+    const slot = start + offset;
+    model.set('direcoes', side, slot);
+    model.set('inferioresblocos', low, slot);
+    model.set('superioresblocos', high, slot);
+    model.set('datasblocos', date, slot);
+    model.set('horasblocos', time, slot);
+    model.set('criacoesblocos', birth, slot);
+    if (debug) {
+      model.set('smcorigemob', 0, slot);
+      model.set('smcpivoob', 0, slot);
+    }
+  });
+}
+
+function fact(lane, origin, price, previousBias = 0) {
+  return { lane, origin, price, previousBias };
+}
+
+function scripted(closes, entries, overrides = {}, tick = 1) {
+  const bars = dated(closes.map((close) => [close, Math.max(130, close), Math.min(70, close), close]));
+  const model = runtime(updated, bars, { DebugSMC: true, PeriodoSwing: 500, ...overrides }, tick);
+  bars.forEach((_, index) => {
+    if (index > 0) {
+      const bar = index - 1;
+      const frame = bar % 2;
+      const rows = entries[bar] ?? [];
+      model.set('smclotes', rows.length, frame);
+      rows.forEach(({ lane, origin, price, previousBias }, offset) => {
+        const slot = frame * model.get('smclote') + offset;
+        const values = { faixa: lane, origem: origin, ref: -1, nascimento: bar, estado: 1, lo: price,
+          hi: price, brutolo: previousBias, brutohi: lane % 2 === 1 ? 1 : -1 };
+        for (const [field, value] of Object.entries(values)) model.set('smcevento' + field, value, slot);
+      });
+    }
+    model.step(index);
+  });
+  return model;
+}
+
+const prices = generated(850);
+const labels = (trace) => trace.flat().filter(([name]) => name === 'plottext').map(([, text]) => text);
+const horizontal = (calls, label) => calls.filter(([name, , , , , title]) =>
+  name === 'horizontallinecustom' && (label === undefined || title === label));
+
+const cases = {
+  B01() {
+    assert.equal(sha(baseline), 'adb3ce8479a06291df0eb32ce4bddd15dc2ee3919d296cdd54be5ce45ec6ab94');
+    assert.deepEqual(Object.entries(updated.inputs).slice(0, 26), Object.entries(original.inputs));
+    assert.deepEqual(Object.entries(updated.inputs).slice(26), [
+      ['periodoatrsmc', 14], ['toleranciasmcticks', 1], ['bufferrupturasmcticks', 1], ['debugsmc', false],
+    ]);
+    for (const [name, value] of Object.entries(original.constants)) assert.equal(updated.constants[name], value, name);
+    return 'hash de referência, 26 inputs e constantes legadas conferidos. Compilação PENDENTE';
+  },
+  B02() {
+    const bars = swingBars();
+    const { trace, debug } = compare(bars, { PeriodoSwing: 10, MostrarPivos: true });
+    const swing = trace.flatMap((calls, index) => calls
+      .filter(([call, title]) => call === 'plottext' && /swing|^(BOS|CHoCH) (alta|baixa)$/.test(title))
+      .map(([, title]) => [index, title]));
+    assert.deepEqual(swing, [
+      [10, 'Fundo swing'], [11, 'Topo swing'], [12, 'BOS alta'], [15, 'CHoCH baixa'],
+      [24, 'Fundo swing'], [25, 'BOS baixa'], [36, 'Topo swing'], [37, 'CHoCH alta'],
+    ]);
+    assert.deepEqual(archived(debug, 3).map((event) => [event.origem, event.confirmacao, event.lo]), [[1, 11, 120], [26, 36, 110]]);
+    assert.deepEqual(archived(debug, 4).map((event) => [event.origem, event.confirmacao, event.lo]), [[0, 10, 80], [14, 24, 70]]);
+    assert.deepEqual(archived(debug, 7).map((event) => [event.ref, event.confirmacao, event.lo]), [[11, 12, 120], [36, 37, 110]]);
+    assert.deepEqual(archived(debug, 8).map((event) => [event.ref, event.confirmacao, event.lo]), [[10, 15, 80], [24, 25, 70]]);
+    assert.ok(!labels(compare(bars, { PeriodoSwing: 9 }).trace).some((text) => text.endsWith('swing')));
+    return '8 eventos nos preços e barras esperados, com prioridade do topo no empate e sem repetição';
+  },
+  B03() {
+    for (const PeriodoSwing of [10, 50]) {
+      const off = compare(prices, { PeriodoSwing }).trace;
+      const enabled = compare(prices, { PeriodoSwing, MostrarEstruturaInterna: true }).trace;
+      const filtered = compare(prices, { PeriodoSwing, MostrarEstruturaInterna: true, FiltroConfluenciaInterna: true }).trace;
+      for (const text of ['BOS interno alta', 'BOS interno baixa', 'CHoCH interno alta', 'CHoCH interno baixa']) {
+        assert.ok(labels(enabled).includes(text), text);
+      }
+      assert.ok(labels(filtered).filter((text) => text.includes('interno')).length < labels(enabled).filter((text) => text.includes('interno')).length);
+      assert.deepEqual(labels(enabled).filter((text) => !text.includes('interno')), labels(off));
+      assert.deepEqual(labels(filtered).filter((text) => !text.includes('interno')), labels(off));
+    }
+    assert.equal(updated.constants.janelainterna, 5);
+    for (const direction of [1, -1]) {
+      for (const variant of ['passa', 'empate', 'igual', 'ausente']) {
+        const positive = direction === 1;
+        const bars = dated([...Array(5).fill([100, 110, 90, 100]),
+          positive ? [100, variant === 'empate' ? 114 : 116, 92, 106]
+            : [100, 108, variant === 'empate' ? 92 : 84, 94]]);
+        const field = positive ? 'topo' : 'fundo';
+        const level = positive ? 105 : 95;
+        const { trace } = compare(bars, { MostrarEstruturaInterna: true, FiltroConfluenciaInterna: true }, (model, index) => {
+          if (index !== 5) return;
+          model.set('tem' + field, variant !== 'ausente');
+          model.set('nivel' + field, variant === 'igual' ? level : (positive ? 130 : 70));
+          model.set('tem' + field + 'interno', true);
+          model.set(field + 'interno', level);
+        });
+        assert.equal(labels([trace[5]]).includes(positive ? 'BOS interno alta' : 'BOS interno baixa'), variant === 'passa');
+      }
+    }
+    return 'quatro categorias internas, bloqueios nos dois sentidos e swing equivalente nas janelas 10 e 50';
+  },
+  B04() {
+    let internal = 0;
+    let swing = 0;
+    for (const UsarATRBlocos of [false, true]) {
+      for (const MitigarPorFechamento of [false, true]) {
+        compare(prices, { PeriodoSwing: 10, MostrarBlocosInternos: true, MostrarBlocosSwing: true, UsarATRBlocos, MitigarPorFechamento },
+          undefined, (reference, quiet, debug, bar) => {
+            for (const group of [0, 1]) {
+              const expected = blockList(reference, bar, group);
+              assert.deepEqual(blockList(quiet, bar, group), expected);
+              assert.deepEqual(blockList(debug, bar, group), expected);
+              if (group === 0) internal = Math.max(internal, expected.length);
+              else swing = Math.max(swing, expected.length);
+            }
+          });
+      }
+    }
+    assert.ok(internal > 0 && swing > 0);
+    const bars = swingBars();
+    bars[12][2] = 60;
+    const rejected = compare(bars, { PeriodoSwing: 10, MostrarBlocosSwing: true }).debug;
+    const block = archived(rejected, 11).find(({ nascimento }) => nascimento === 12);
+    assert.equal(block.estado, 4);
+    assert.equal(block.origem, 1);
+    assert.equal(block.ref, 1);
+    assert.deepEqual([block.brutolo, block.brutohi], [90, 120]);
+
+    const caps = swingBars().slice(0, 13);
+    compare(caps, { PeriodoSwing: 10, MostrarBlocosSwing: true }, (model, index, variant) => {
+      if (index === 12) seedBlocks(model, 11, 1, Array.from({ length: 100 }, (_, offset) => ({ low: 50, high: 150 + offset })), variant === 2);
+    }, (reference, quiet, debug, index) => {
+      if (index === 12) {
+        const expected = blockList(reference, index, 1);
+        assert.equal(expected.length, 100);
+        assert.equal(expected[0][2], 151);
+        assert.deepEqual(blockList(quiet, index, 1), expected);
+        assert.deepEqual(blockList(debug, index, 1), expected);
+      }
+    });
+    return `quatro combinações, máximos observados de ${internal} internos e ${swing} swing, rejeição na criação e descarte a 100`;
+  },
+  B05() {
+    for (const ModoFaixaOB of [1, 2, 3, 4]) {
+      for (const OrdemFaixaOB of [1, 2]) {
+        for (const AncorarFaixaOB of [false, true]) {
+          compare(prices, { PeriodoSwing: 10, ModoFaixaOB, OrdemFaixaOB, AncorarFaixaOB });
+        }
+      }
+    }
+    const flat = dated([[100, 110, 90, 100], [100, 110, 90, 100], [100, 110, 90, 100]]);
+    flat[2][4] = 1261103;
+    for (const requested of [1, 2, 20, 25]) {
+      const { trace } = compare(flat, { MostrarBlocosSwing: true, QuantidadeBlocosSwing: requested }, (model, index, variant) => {
+        if (index === 2) seedBlocks(model, 1, 1, Array.from({ length: 20 }, (_, n) => ({ low: 70 - n, high: 110 + n })), variant === 2);
+      });
+      assert.equal(horizontal(trace[2]).length, Math.min(requested, 20));
+    }
+    const { trace } = compare(flat, { ModoFaixaOB: 1, AncorarFaixaOB: true }, (model, index, variant) => {
+      if (index === 2) seedBlocks(model, 1, 1, [{ low: 50, high: 130, time: 930 }], variant === 2);
+    });
+    assert.deepEqual(horizontal(trace[2]).map((call) => call.slice(8)), [
+      [1261102, 1261102, 40, 930, 2359], [1261103, 0, 40],
+    ]);
+    const change = dated([[100, 110, 90, 100], [100, 110, 90, 100], [100, 110, 80, 100], [100, 110, 90, 100]]);
+    const switching = compare(change, { ModoFaixaOB: 1, AncorarFaixaOB: false }, (model, index, variant) => {
+      if (index === 1) seedBlocks(model, 0, 1, [{ low: 70, high: 120 }, { low: 85, high: 115, birth: 1 }], variant === 2);
+    }).trace;
+    assert.ok(switching[1].some(([call, value]) => call === 'plot2' && value === 85));
+    assert.deepEqual(switching[2], [['noplot', 1], ['noplot', 2]]);
+    assert.ok(switching[3].some(([call, value]) => call === 'plot2' && value === 70));
+    return '16 configurações de faixa, limite de 20, lacuna na troca e virada de sessão';
+  },
+  B06() {
+    const histories = [];
+    for (const direction of [1, -1]) {
+      for (const [difference, tolerance, expected] of [[0, 0.1, true], [0.5, 0.1, true], [1, 0.1, false], [0, 0, false]]) {
+        const bars = dated(Array.from({ length: 205 }, () => [105, 110, 100, 105]));
+        const field = direction === 1 ? 'topoeq' : 'fundoeq';
+        const price = direction === 1 ? 111 : 99;
+        bars[200][direction === 1 ? 1 : 2] = price;
+        const { trace, debug } = compare(bars, { MostrarEQHEQL: true, LimiarEQ: tolerance }, (model, index, variant) => {
+          if (index !== 203) return;
+          model.set('pernaeq', direction === 1 ? 1 : 0);
+          model.set('tem' + field, true);
+          model.set(field, price - difference);
+          model.set('atrwilder', 10);
+          if (variant === 2) model.set(direction === 1 ? 'smcorigemeqtopo' : 'smcorigemeqfundo', 195);
+        });
+        const text = direction === 1 ? 'EQH' : 'EQL';
+        assert.equal(labels([trace[203]]).includes(text), expected);
+        if (expected) {
+          const pair = archived(debug, direction === 1 ? 15 : 16).find(({ nascimento }) => nascimento === 203);
+          assert.deepEqual([pair.ref, pair.origem, pair.hi, pair.confirmacao], [195, 200, price, 203]);
+        }
+        histories.push(bars);
+      }
+    }
+    assert.ok(histories.every((bars) => !labels(compare(bars).trace).some((text) => ['EQH', 'EQL'].includes(text))));
+    return 'EQH/EQL nos dois sentidos, preço do segundo pivô, tolerância estrita, limiar zero e saída oculta';
+  },
+  B07() {
+    const base = [100, 105, 95, 100];
+    const patterns = [
+      { lane: 13, bars: [base, [101, 111, 100, 110], [111, 114, 108, 112], [108, 110, 105, 107], [105, 108, 104, 105]], bounds: [105, 108] },
+      { lane: 14, bars: [base, [99, 100, 89, 90], [89, 92, 86, 88], [90, 95, 87, 90], [94, 96, 91, 94]], bounds: [92, 95] },
+    ];
+    for (const { lane, bars: pattern, bounds } of patterns) {
+      const bars = dated([...Array(13).fill(base), ...pattern, base]);
+      for (const ExtensaoFVG of [0, 1]) {
+        const { trace, debug } = compare(bars, { MostrarFVG: true, ExtensaoFVG, FiltroAutomaticoFVG: true });
+        assert.equal(horizontal(trace[15], 'FVG').length, 1);
+        assert.equal(horizontal(trace[16], 'FVG').length, 1);
+        assert.equal(horizontal(trace[17], 'FVG').length, 0);
+        const emitted = horizontal(trace[16], 'FVG')[0];
+        assert.deepEqual([emitted[1], emitted[10]], [(bounds[0] + bounds[1]) / 2, (bounds[1] - bounds[0]) / 2]);
+        assert.equal(horizontal(trace[16]).length, ExtensaoFVG === 1 ? 2 : 1);
+        const gap = archived(debug, lane).find(({ nascimento }) => nascimento === 15);
+        assert.deepEqual([gap.ref, gap.origem, gap.confirmacao, gap.publicacao, gap.terminal, gap.estado], [13, 14, 15, 16, 17, 2]);
+        assert.deepEqual([gap.lo, gap.hi], bounds);
+      }
+      const recent = dated(pattern.slice(0, 3));
+      assert.equal(horizontal(compare(recent, { MostrarFVG: true }).trace[2], 'FVG').length, 0);
+      assert.equal(horizontal(compare(recent, { MostrarFVG: true, FiltroAutomaticoFVG: false }).trace[2], 'FVG').length, 1);
+    }
+    const bars = dated([[100, 105, 95, 100], [100, 110, 96, 109], [110, 112, 108, 111]]);
+    const capped = compare(bars, { MostrarFVG: true, FiltroAutomaticoFVG: false }, (model, index) => {
+      if (index !== 2) return;
+      model.set('carimbosfvg', 2, 1);
+      model.set('quantidadesfvg', 100, 1);
+      for (let offset = 1; offset <= 100; offset++) {
+        const position = 100 + offset;
+        model.set('direcoesfvg', 1, position);
+        model.set('formacoesfvg', 1, position);
+        model.set('inferioresfvg', 70, position);
+        model.set('superioresfvg', 80, position);
+        model.set('datasorigemfvg', 1261102, position);
+        model.set('datasdireitafvg', 1261102, position);
+      }
+    }, (reference, quiet, debug, index) => {
+      if (index === 2) for (const model of [reference, quiet, debug]) assert.equal(model.element('quantidadesfvg', 2), 100);
+    });
+    assert.equal(horizontal(capped.trace[2], 'FVG').length, 5);
+    return 'FVG espelhado, filtro, toque, mitigação, extensão entre sessões e limites de 5/100';
+  },
+  B08() {
+    const bars = dated(Array.from({ length: 7 }, () => [150, 200, 100, 150]));
+    bars[6][4] = 1261103;
+    const { trace, debug } = compare(bars, { MostrarZonasPD: true }, (model, index, variant) => {
+      if (index !== 5 && index !== 6) return;
+      model.set('temtopo', true);
+      model.set('temfundo', true);
+      model.set('topopd', 200);
+      model.set('fundopd', 100);
+      model.set('diaorigempd', 1261102);
+      model.set('horaorigempd', 930);
+      if (variant === 2) model.set('smcorigempd', 0);
+    });
+    const drawn = horizontal(trace[6]);
+    assert.deepEqual(drawn.map((call) => call[5]), ['Premium', 'Equilibrium', 'Discount', '', '', '']);
+    assert.deepEqual(drawn.slice(0, 3).map((call) => [call[1] - call[10], call[1] + call[10]]), [[195, 200], [147.5, 152.5], [100, 105]]);
+    assert.deepEqual(archived(debug, 17).map(({ lo, hi }) => [lo, hi]), [[100, 200]]);
+    const history = swingBars();
+    const zones = compare(history, { PeriodoSwing: 10, MostrarZonasPD: true }).debug;
+    const snapshots = archived(zones, 17);
+    assert.deepEqual(snapshots.find(({ confirmacao }) => confirmacao === 24).origem, 1);
+    assert.deepEqual(snapshots.find(({ confirmacao }) => confirmacao === 25).origem, 14);
+    assert.ok(!compare(history, { ModoFaixaOB: 4, MostrarZonasPD: true }).trace.some((calls) => horizontal(calls, 'Premium').length));
+    return 'seis limites, um rótulo por zona, faixa em duas sessões e redefinição a partir de t+1';
+  },
+  B09() {
+    function breaker(mirror, { enabled = true, order = 1, bounce = false, edge = false } = {}) {
+      const pre = [105, 110, 100, 105];
+      const down = [pre, pre, pre, [116, 120, 106, bounce ? 112 : 108],
+        [108, 109, 101, 103], [102, 102, 97, 99], [100, 110, 99, 109],
+        [110, 112, 110, 111], [110, 111, 109, 110]];
+      if (edge) down.splice(3, 3, [116, 120, 100, 105], [105, 109, 96, 98], [98, 99, 95, 97]);
+      const bars = dated(mirror ? down.map(([o, h, l, c]) => [210 - o, 210 - l, 210 - h, 210 - c]) : down);
+      for (let index = 6; index < bars.length; index++) bars[index][4] = 1261103;
+      return compare(bars, {
+        ModoFaixaOB: mirror ? 2 : 1, OrdemFaixaOB: order, MostrarBreakerBlocks: enabled, FiltroAutomaticoFVG: false,
+      }, (model, index, variant) => {
+        if (index !== 3) return;
+        seedBlocks(model, 2, 1, mirror
+          ? [{ side: -1, low: 101, high: 110 }, { side: -1, low: 100, high: 110, birth: 1 }]
+          : [{ low: 100, high: 109 }, { low: 100, high: 110, birth: 1 }], variant === 2);
+      }).trace;
+    }
+    for (const mirror of [false, true]) {
+      for (const order of [1, 2]) {
+        const trace = breaker(mirror, { order });
+        assert.equal(horizontal(trace[5], 'Breaker').length, 0);
+        const published = horizontal(trace[6], 'Breaker')[0];
+        assert.deepEqual([published[1], published[2], published[8], published[10]], [
+          order === 1 ? 105 : (mirror ? 105.5 : 104.5), 'clltgray', 1261102, order === 1 ? 5 : 4.5,
+        ]);
+        assert.equal(horizontal(trace[7], 'Breaker').length, 1);
+        assert.equal(horizontal(trace[8], 'Breaker').length, 0);
+      }
+      assert.ok(!breaker(mirror, { enabled: false }).some((calls) => horizontal(calls, 'Breaker').length));
+      assert.ok(!breaker(mirror, { bounce: true }).some((calls) => horizontal(calls, 'Breaker').length));
+      assert.ok(!breaker(mirror, { edge: true }).some((calls) => horizontal(calls, 'Breaker').length));
+    }
+    return 'modos 1/2, ordens 1/2, repique e toque sem interseção rejeitados, publicação e invalidação na barra seguinte';
+  },
+  B10() {
+    const first = {
+      2: [fact(3, 1, 100)],
+      4: [fact(4, 3, 90)],
+      6: [fact(3, 5, 110)],
+      8: [fact(4, 7, 95)],
+      9: [fact(7, 5, 110, 1)],
+      12: [fact(4, 11, 85)],
+      14: [fact(3, 13, 100)],
+      15: [fact(8, 11, 85, 1)],
+    };
+    const closes = [100, 100, 100, 100, 100, 100, 100, 100, 100, 111, 94, 92, 90, 90, 90, 84, 84];
+    for (const direction of [1, -1]) {
+      const inverse = direction === 1 ? first : Object.fromEntries(Object.entries(first).map(([bar, events]) => [bar,
+        events.map((event) => fact(event.lane % 2 === 1 ? event.lane + 1 : event.lane - 1,
+          event.origin, 200 - event.price, -event.previousBias)),
+      ]));
+      const model = scripted(closes.map((close) => direction === 1 ? close : 200 - close), inverse);
+      const snapshots = archived(model, 19);
+      assert.deepEqual(snapshots.filter(({ nascimento }) => [9, 10, 15].includes(nascimento))
+        .map(({ nascimento, origem, ref, brutohi, qualificacao }) => [nascimento, origem, ref, brutohi, qualificacao]),
+      [[9, 7, 8, direction, 0], [10, -1, -1, 2, 9], [15, 13, 14, -direction, 0]]);
+      assert.ok(archived(model, 18).every(({ brutohi }) => brutohi === 0));
+      const event = archived(model, direction === 1 ? 7 : 8)[0];
+      assert.deepEqual([event.nascimento, event.origem, event.ref, event.confirmacao, event.publicacao, event.qualificacao], [9, 5, 6, 9, 10, 2]);
+    }
+
+    const sameBar = scripted([100, 100, 100, 111, 110], { 3: [fact(3, 1, 110), fact(7, 1, 110)] });
+    assert.equal(archived(sameBar, 7)[0].qualificacao, 3);
+    assert.equal(archived(sameBar, 7)[0].ref, 3);
+    const unknown = scripted([...Array(9).fill(90), 101, 101], {
+      2: [fact(4, 1, 80)], 4: [fact(3, 3, 90)], 6: [fact(4, 5, 85)], 8: [fact(3, 7, 100)], 9: [fact(7, 7, 100)],
+    });
+    assert.deepEqual(archived(unknown, 19).filter(({ nascimento }) => nascimento === 9)
+      .map(({ ref, brutohi, qualificacao }) => [ref, brutohi, qualificacao]), [[-1, 1, 8]]);
+    const returned = scripted([...closes.slice(0, 11), 111, 111], first);
+    assert.deepEqual(archived(returned, 19).at(-1).qualificacao, 10);
+    assert.equal(archived(returned, 19).at(-1).brutohi, 0);
+
+    const context = { 2: [fact(3, 1, 110)], 4: [fact(7, 1, 110)] };
+    for (const buffer of [0, 1, 3]) {
+      const model = scripted([100, 100, 100, 110, 111, 112, 113, 114], context, { BufferRupturaSMCTicks: buffer });
+      const event = archived(model, 7)[0];
+      assert.deepEqual([event.nascimento, event.publicacao, event.qualificacao, event.barraqualificacao], [4, 5, 2, buffer === 3 ? 6 : 4]);
+    }
+    const touch = scripted([100, 100, 100, 109, 110, 110], context, { BufferRupturaSMCTicks: 0 });
+    assert.equal(archived(touch, 7)[0].qualificacao, 4);
+    const delayed = Array.from({ length: 107 }, (_, bar) => bar < 4 ? 100 : 111);
+    delayed[104] = 113;
+    assert.deepEqual(archived(scripted(delayed, context, { BufferRupturaSMCTicks: 3 }), 7)
+      .map(({ qualificacao, barraqualificacao }) => [qualificacao, barraqualificacao]), [[2, 104]]);
+    delayed[104] = 112;
+    delayed[105] = 113;
+    assert.deepEqual(archived(scripted(delayed, context, { BufferRupturaSMCTicks: 3 }), 7)
+      .map(({ qualificacao, barraqualificacao }) => [qualificacao, barraqualificacao]), [[6, 104]]);
+    const cancelled = scripted([100, 100, 100, 110, 111, 110, 113, 114], context, { BufferRupturaSMCTicks: 3 });
+    assert.equal(archived(cancelled, 7)[0].qualificacao, 5);
+    const replaced = scripted([100, 100, 100, 110, 111, 113, 114], {
+      ...context, 5: [fact(3, 4, 115)],
+    }, { BufferRupturaSMCTicks: 3 });
+    assert.equal(archived(replaced, 7)[0].qualificacao, 18);
+
+    const consecutive = scripted(Array(12).fill(100), {
+      2: [fact(3, 1, 110)], 4: [fact(3, 3, 109)], 6: [fact(3, 5, 110)], 8: [fact(4, 7, 90)],
+    });
+    assert.equal(consecutive.element('smchisttotal', 1), 2);
+    assert.equal(consecutive.element('smchistorigem', 200), 5);
+    assert.deepEqual(archived(consecutive, 3).map(({ nascimento, ref }) => [nascimento, ref]), [[2, -1], [4, 2], [6, 4]]);
+
+    const atrBars = dated([...Array(14).fill([100, 105, 95, 100]), [115, 118, 114, 116], [116, 117, 114, 116]]);
+    const atr = runtime(updated, atrBars, { DebugSMC: true });
+    for (let bar = 0; bar <= 13; bar++) atr.step(bar);
+    assert.equal(atr.get('smcatrdisponivel'), false);
+    atr.step(14);
+    assert.equal(atr.get('smcatr'), 10);
+    assert.equal(atr.get('atrwilder'), 0);
+    atr.step(15);
+    assert.equal(atr.get('smcatr'), (13 * 10 + 18) / 14);
+    atrBars[14][1] = 113;
+    const invalid = runtime(updated, atrBars, { DebugSMC: true });
+    atrBars.forEach((_, index) => invalid.step(index));
+    assert.equal(invalid.get('smcatrdisponivel'), false);
+    const unavailableTick = scripted(Array(17).fill(100), {}, {}, 0);
+    assert.equal(unavailableTick.get('smcatrdisponivel'), false);
+    assert.equal(archived(unavailableTick, 19).at(-1).qualificacao, 7);
+    const invalidInput = scripted(Array(17).fill(100), {}, { PeriodoATRSMC: 1 });
+    assert.equal(invalidInput.get('smcconfigvalida'), false);
+    assert.equal(archived(invalidInput, 19).at(-1).dadosvalidos, false);
+    return 'ruptura causal, espera inclusiva de 100 barras, fluxo/proteção espelhados, alternância, timestamps e ATR separado';
+  },
+  B11() {
+    const options = {
+      PeriodoSwing: 10, DebugSMC: true, MostrarPivos: true, MostrarEstruturaInterna: true,
+      MostrarBlocosInternos: true, MostrarBlocosSwing: true, MostrarEQHEQL: true, MostrarFVG: true, MostrarZonasPD: true,
+    };
+    compare(prices, options);
+    const bars = prices.slice(0, 410).map((bar) => bar.slice());
+    const reload = runtime(updated, bars, options);
+    const replay = runtime(updated, bars, options);
+    const historicalLoad = runtime(updated, bars, options);
+    for (let index = 0; index < bars.length; index++) {
+      const expected = reload.step(index);
+      const loaded = historicalLoad.step(index, index === bars.length - 1);
+      if (index === bars.length - 1) assert.deepEqual(loaded, expected);
+      const current = bars[index];
+      const previousCount = replay.get('smcpublicados');
+      bars[index] = [current[0], current[1] + 4, current[2] - 3, current[0], current[4], current[5]];
+      replay.step(index);
+      const count = replay.get('smcpublicados');
+      assert.equal(replay.get('smcorigempublicada'), index - 1);
+      assert.ok(index === 0 ? count === 0 : count > previousCount);
+      bars[index] = current;
+      assert.deepEqual(replay.step(index), expected);
+      assert.equal(replay.get('smcpublicados'), count);
+    }
+    for (let lane = 1; lane <= 19; lane++) {
+      assert.deepEqual(archived(replay, lane), archived(reload, lane));
+      assert.deepEqual(archived(historicalLoad, lane), archived(reload, lane));
+    }
+    const jumped = runtime(updated, bars, options);
+    jumped.step(0);
+    jumped.step(1);
+    jumped.step(4);
+    assert.equal(jumped.get('smcloteausente'), true);
+    assert.equal(jumped.get('smcorigempublicada'), 0);
+    return '410 barras, dois ticks por barra, 19 partições idênticas e salto de histórico diagnosticado';
+  },
+  B12() {
+    const options = { PeriodoSwing: 10, MostrarBlocosSwing: true, MostrarBlocosInternos: true, MostrarFVG: true };
+    function timed(program, overrides) {
+      const times = [];
+      let model;
+      for (let trial = 0; trial < 3; trial++) {
+        model = runtime(program, prices, overrides);
+        const start = performance.now();
+        prices.forEach((_, index) => model.step(index, index === prices.length - 1));
+        times.push(performance.now() - start);
+      }
+      return { elapsed: times.sort((a, b) => a - b)[1], model };
+    }
+    const reference = timed(original, options);
+    const quiet = timed(updated, options);
+    const debug = timed(updated, { ...options, DebugSMC: true });
+    for (let lane = 1; lane <= 19; lane++) assert.ok(archived(debug.model, lane).length <= 100);
+    assert.deepEqual(archived(debug.model, 19).map(({ nascimento }) => nascimento), Array.from({ length: 100 }, (_, index) => 749 + index));
+    assert.ok(debug.model.get('smcreciclados') > 0);
+    assert.ok(debug.model.get('smcmaiorlote') <= 320);
+    assert.equal(debug.model.get('smcrejeitadoscapacidade'), 0);
+
+    const bars = dated([[100, 105, 95, 100], [101, 111, 100, 110], [111, 114, 108, 112], [112, 115, 110, 113]]);
+    const full = runtime(updated, bars, { DebugSMC: true, FiltroAutomaticoFVG: false });
+    for (let index = 0; index < 3; index++) full.step(index);
+    full.set('smcusados', 100, 13);
+    for (let offset = 0; offset < 100; offset++) {
+      const position = 640 + 12 * 100 + offset;
+      full.set('smceventoestado', 0, position);
+      full.set('smceventonascimento', 200 + offset, position);
+    }
+    full.step(3);
+    assert.equal(full.get('smcrejeitadoscapacidade'), 1);
+    assert.equal(archived(full, 13)[0].nascimento, 200);
+    assert.equal(full.element('smceventoqualificacao', 0), 17);
+    return `100 por partição, ativos preservados e CAPACITY_FULL. Mediana local em ms, referência/off/on ${[reference, quiet, debug].map(({ elapsed }) => elapsed.toFixed(1)).join('/')}`;
+  },
+};
+
+console.log(`Baseline ${commit} SHA-256 ${sha(baseline)}`);
+console.log(`Candidato SHA-256 ${sha(candidate)}`);
+for (const [id, test] of Object.entries(cases)) {
+  try {
+    console.log(`${id} PASS (local) — ${test()}`);
+  } catch (error) {
+    process.exitCode = 1;
+    console.error(`${id} FAIL (local) — ${error.stack}`);
+  }
+}

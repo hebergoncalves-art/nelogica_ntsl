@@ -16,6 +16,39 @@ const
   TotalEspacosBreaker = 300;
   QuadrosOBRemovidos = 5;
   TotalEspacosOBRemovidos = 500;
+  // 08A: dois lotes de 320, com maximo de 315 fatos por barra:
+  // 204 OB, 101 FVG, 6 estruturais, 1 EQ, 1 PD e 2 snapshots de fluxo.
+  SMCLote = 320;
+  SMCBaseHistorico = 640;
+  SMCCapacidade = 100;
+  SMCUltimoIndice = 2539;
+  SMCHistPivos = 200;
+  SMCPrazoRuptura = 100;
+  SMCAtivo = 0;
+  SMCFato = 1;
+  SMCMitigado = 2;
+  SMCDescarte = 3;
+  SMCRejeitado = 4;
+  SMCAguardando = 1;
+  SMCQualificado = 2;
+  SMCTargetNotPreknown = 3;
+  SMCSemCruzamento = 4;
+  SMCCancelado = 5;
+  SMCExpirado = 6;
+  SMCDadosInvalidos = 7;
+  SMCProtecaoIncerta = 8;
+  SMCPerdaProtecao = 9;
+  SMCRetornoExtremo = 10;
+  SMCHH = 11;
+  SMCHL = 12;
+  SMCLH = 13;
+  SMCLL = 14;
+  SMCIgual = 15;
+  SMCAmbiguo = 16;
+  SMCCapacityFull = 17;
+  SMCAlvoSubstituido = 18;
+  SMCContextoPerdido = 19;
+  SMCTransicao = 2;
 
 input
   PeriodoSwing(50);
@@ -44,6 +77,10 @@ input
   CorZonaEquilibrium(clGray);
   CorZonaDiscount(clTeal);
   MostrarBreakerBlocks(False);
+  PeriodoATRSMC(14);
+  ToleranciaSMCTicks(1);
+  BufferRupturaSMCTicks(1);
+  DebugSMC(False);
 
 var
   periodo, perna, vies : Integer;
@@ -112,6 +149,48 @@ var
   inferFVGFechado, superFVGFechado, inferBreaker, superBreaker, chegadaBreaker, saidaTravessia : Float;
   centroBreaker, alturaBreaker : Float;
 
+  calculaPD, calculaFVG, calculaOBInterno, calculaOBSwing, observaEQ : Boolean;
+  smcColeta, smcConfigValida, smcBarraValida, smcTemAnterior, smcATRDisponivel : Boolean;
+  smcLoteAusente : Boolean;
+  smcTick, smcTR, smcSomaTR, smcATR : Float;
+  smcAmostrasATR, smcBarrasValidas, smcUltimaPublicacao, smcOrigemPublicada, smcBarra, smcContador : Integer;
+  smcQuadro, smcBase, smcSlot, smcFaixa, smcOrigem, smcMotivo, smcPosicao : Integer;
+  smcOrigemEQTopo, smcOrigemEQFundo, smcOrigemPD : Integer;
+  smcIndice, smcPrimeiro, smcUltimo, smcDestino, smcTerminal, smcAchado : Integer;
+  smcInicioFaixa, smcFimFaixa, smcDeslocamento, smcDataConfirmada, smcHoraConfirmada : Integer;
+  smcPublicados, smcReciclados, smcRejeitadosCapacidade, smcMaiorLote : Integer;
+  smcLotes : array[0..1] of Integer;
+  smcCarimbos : array[0..1] of Integer;
+  // Chave local: faixa + nascimento. Remocoes referenciam a chave original.
+  // 1..4 Pivot, 5..8 Break, 9..12 OB, 13..14 FVG, 15..16 EQ, 17 PD, 18..19 FlowSnapshot.
+  smcEventoFaixa, smcEventoOrigem, smcEventoRef, smcEventoNascimento : array[0..SMCUltimoIndice] of Integer;
+  smcEventoEstado, smcEventoConfirmacao, smcEventoPublicacao : array[0..SMCUltimoIndice] of Integer;
+  smcEventoData, smcEventoHora, smcEventoDataOrigem, smcEventoHoraOrigem : array[0..SMCUltimoIndice] of Integer;
+  smcEventoTerminal, smcEventoDataTerminal, smcEventoHoraTerminal : array[0..SMCUltimoIndice] of Integer;
+  smcEventoQualificacao, smcEventoBarraQualificacao : array[0..SMCUltimoIndice] of Integer;
+  smcEventoLo, smcEventoHi, smcEventoBrutoLo, smcEventoBrutoHi, smcEventoATR : array[0..SMCUltimoIndice] of Float;
+  smcEventoATRValido, smcEventoDadosValidos : array[0..SMCUltimoIndice] of Boolean;
+  smcOrigemOB, smcPivoOB : array[1..TotalEspacosBlocos] of Integer;
+  smcUsados : array[1..19] of Integer;
+  smcPivoNaBarra, smcBreakNaBarra, smcPivoConfirmado : array[1..4] of Integer;
+  smcPivoValido : array[1..4] of Boolean;
+  smcEspera : array[1..4] of Integer;
+  smcEsperaContexto : array[1..4] of Integer;
+
+  smcEscala, smcDirecao, smcLado, smcResultado, smcMotivoFluxo : Integer;
+  smcAntigoFluxo, smcQuebra, smcQuebraRef, smcQuebraOrigem : Integer;
+  smcFechamentoTicks, smcAnteriorTicks, smcNivelTicks, smcDistanciaTicks : Integer;
+  smcHistBase, smcHistPos, smcHistUltimo, smcHistQtd, smcHistOposto : Integer;
+  smcHistRecente, smcHistSegundo, smcHistTerceiro, smcHistQuarto, smcAlvo : Integer;
+  smcCoerente, smcMudaFluxo, smcRegistraPivo, smcCruzamentoValido : Boolean;
+  smcFluxo, smcContexto, smcDesdeTransicao, smcDirecaoTransicao : array[0..1] of Integer;
+  smcProtecaoOrigem, smcProtecaoConfirmacao : array[0..1] of Integer;
+  smcProtecaoPreco, smcExtremoTransicao : array[0..1] of Float;
+  smcTemExtremoTransicao : array[0..1] of Boolean;
+  smcHistInicio, smcHistTotal : array[0..1] of Integer;
+  smcHistOrigem, smcHistConfirmacao, smcHistLado : array[0..399] of Integer;
+  smcHistPreco : array[0..399] of Float;
+
 begin
   // Gravar data e hora em series antes de consultar candles anteriores.
   dataCandle := Date;
@@ -124,6 +203,69 @@ begin
   calculaEQ := (ModoFaixaOB = 0) and MostrarEQHEQL;
   exibeFVG := (ModoFaixaOB = 0) and MostrarFVG;
   calculaBreaker := MostrarBreakerBlocks and ((ModoFaixaOB = 1) or (ModoFaixaOB = 2));
+  observaEQ := calculaEQ or DebugSMC;
+  calculaPD := ((ModoFaixaOB = 0) and MostrarZonasPD) or DebugSMC;
+  calculaFVG := exibeFVG or DebugSMC;
+  calculaOBInterno := calculaBlocosInternos or DebugSMC;
+  calculaOBSwing := calculaBlocosSwing or DebugSMC;
+
+  smcColeta := False;
+  if DebugSMC then
+  begin
+    smcConfigValida := (PeriodoATRSMC >= 2) and (ToleranciaSMCTicks >= 0)
+      and (BufferRupturaSMCTicks >= 0);
+    if CurrentBar = 0 then
+    begin
+      smcUltimaPublicacao := -1;
+      smcOrigemPublicada := -1;
+      smcPublicados := 0;
+      smcReciclados := 0;
+      smcRejeitadosCapacidade := 0;
+      smcMaiorLote := 0;
+      smcLoteAusente := False;
+      smcCarimbos[0] := 0;
+      smcCarimbos[1] := 0;
+      smcAmostrasATR := 0;
+      smcBarrasValidas := 0;
+      smcSomaTR := 0;
+      smcATR := 0;
+      smcATRDisponivel := False;
+      smcTemAnterior := False;
+      for smcFaixa := 1 to 19 do
+        smcUsados[smcFaixa] := 0;
+      for smcLado := 1 to 4 do
+      begin
+        smcEspera[smcLado] := -1;
+        smcPivoConfirmado[smcLado] := -1;
+        smcPivoValido[smcLado] := False;
+      end;
+      for smcEscala := 0 to 1 do
+      begin
+        smcFluxo[smcEscala] := 0;
+        smcContexto[smcEscala] := 0;
+        smcProtecaoConfirmacao[smcEscala] := -1;
+        smcHistInicio[smcEscala] := 0;
+        smcHistTotal[smcEscala] := 0;
+      end;
+    end;
+    // Uma nova passagem pela barra em formacao substitui o lote inteiro.
+    smcColeta := CurrentBar > smcUltimaPublicacao;
+    if smcColeta then
+    begin
+      smcQuadro := Mod(CurrentBar, 2);
+      smcBase := smcQuadro * SMCLote;
+      smcContador := 0;
+      smcOrigemEQTopo := -1;
+      smcOrigemEQFundo := -1;
+      smcOrigemPD := -1;
+      if CurrentBar > 0 then
+      begin
+        smcOrigemEQTopo := smcOrigemEQTopo[1];
+        smcOrigemEQFundo := smcOrigemEQFundo[1];
+        smcOrigemPD := smcOrigemPD[1];
+      end;
+    end;
+  end;
   if calculaBreaker then
   begin
     ladoOrigemBreaker := 1;
@@ -216,6 +358,20 @@ begin
         barraFundo := CurrentBar - periodo;
         temFundo := True;
         fundoRompido := False;
+        if smcColeta then
+        begin
+          smcSlot := smcBase + smcContador;
+          smcEventoFaixa[smcSlot] := 4;
+          smcEventoOrigem[smcSlot] := barraFundo;
+          smcEventoRef[smcSlot] := -1;
+          smcEventoNascimento[smcSlot] := CurrentBar;
+          smcEventoEstado[smcSlot] := SMCFato;
+          smcEventoLo[smcSlot] := nivelFundo;
+          smcEventoHi[smcSlot] := nivelFundo;
+          smcEventoBrutoLo[smcSlot] := nivelFundo;
+          smcEventoBrutoHi[smcSlot] := nivelFundo;
+          smcContador := smcContador + 1;
+        end;
         if (ModoFaixaOB = 0) and MostrarPivos then
           PlotText("Fundo swing", clLime, 0, 10);
       end
@@ -225,6 +381,20 @@ begin
         barraTopo := CurrentBar - periodo;
         temTopo := True;
         topoRompido := False;
+        if smcColeta then
+        begin
+          smcSlot := smcBase + smcContador;
+          smcEventoFaixa[smcSlot] := 3;
+          smcEventoOrigem[smcSlot] := barraTopo;
+          smcEventoRef[smcSlot] := -1;
+          smcEventoNascimento[smcSlot] := CurrentBar;
+          smcEventoEstado[smcSlot] := SMCFato;
+          smcEventoLo[smcSlot] := nivelTopo;
+          smcEventoHi[smcSlot] := nivelTopo;
+          smcEventoBrutoLo[smcSlot] := nivelTopo;
+          smcEventoBrutoHi[smcSlot] := nivelTopo;
+          smcContador := smcContador + 1;
+        end;
         if (ModoFaixaOB = 0) and MostrarPivos then
           PlotText("Topo swing", clRed, 2, 10);
       end;
@@ -237,7 +407,7 @@ begin
       and (Close < nivelFundo) and (Close[1] >= nivelFundo[1]);
   end;
 
-  if (ModoFaixaOB = 0) and MostrarZonasPD then
+  if calculaPD then
   begin
     topoPD := 0;
     fundoPD := 0;
@@ -253,7 +423,23 @@ begin
       if temFundo[1] then
         fundoPD := Min(fundoPD[1], Low);
 
-      if LastBarOnChart and temTopo[1] and temFundo[1] and (topoPD > fundoPD) then
+      if smcColeta and temTopo[1] and temFundo[1] and (topoPD > fundoPD) then
+      begin
+        smcSlot := smcBase + smcContador;
+        smcEventoFaixa[smcSlot] := 17;
+        smcEventoOrigem[smcSlot] := smcOrigemPD;
+        smcEventoRef[smcSlot] := -1;
+        smcEventoNascimento[smcSlot] := CurrentBar;
+        smcEventoEstado[smcSlot] := SMCFato;
+        smcEventoLo[smcSlot] := fundoPD;
+        smcEventoHi[smcSlot] := topoPD;
+        smcEventoBrutoLo[smcSlot] := fundoPD;
+        smcEventoBrutoHi[smcSlot] := topoPD;
+        smcContador := smcContador + 1;
+      end;
+
+      if (ModoFaixaOB = 0) and MostrarZonasPD and LastBarOnChart
+        and temTopo[1] and temFundo[1] and (topoPD > fundoPD) then
       begin
         amplitudePD := topoPD - fundoPD;
         meiaAlturaPD := amplitudePD * 0.025;
@@ -308,11 +494,13 @@ begin
           topoPD := nivelTopo;
         diaOrigemPD := dataCandle[periodo];
         horaOrigemPD := horaCandle[periodo];
+        if smcColeta then
+          smcOrigemPD := CurrentBar - periodo;
       end;
     end;
   end;
 
-  if (MostrarEstruturaInterna or calculaBlocosInternos) and (CurrentBar >= JanelaInterna) then
+  if (MostrarEstruturaInterna or calculaOBInterno) and (CurrentBar >= JanelaInterna) then
   begin
     if High[JanelaInterna] > Highest(High, JanelaInterna) then
       pernaInterna := 0
@@ -327,6 +515,20 @@ begin
         barraFundoInterno := CurrentBar - JanelaInterna;
         temFundoInterno := True;
         fundoInternoRompido := False;
+        if smcColeta then
+        begin
+          smcSlot := smcBase + smcContador;
+          smcEventoFaixa[smcSlot] := 2;
+          smcEventoOrigem[smcSlot] := barraFundoInterno;
+          smcEventoRef[smcSlot] := -1;
+          smcEventoNascimento[smcSlot] := CurrentBar;
+          smcEventoEstado[smcSlot] := SMCFato;
+          smcEventoLo[smcSlot] := fundoInterno;
+          smcEventoHi[smcSlot] := fundoInterno;
+          smcEventoBrutoLo[smcSlot] := fundoInterno;
+          smcEventoBrutoHi[smcSlot] := fundoInterno;
+          smcContador := smcContador + 1;
+        end;
       end
       else
       begin
@@ -334,6 +536,20 @@ begin
         barraTopoInterno := CurrentBar - JanelaInterna;
         temTopoInterno := True;
         topoInternoRompido := False;
+        if smcColeta then
+        begin
+          smcSlot := smcBase + smcContador;
+          smcEventoFaixa[smcSlot] := 1;
+          smcEventoOrigem[smcSlot] := barraTopoInterno;
+          smcEventoRef[smcSlot] := -1;
+          smcEventoNascimento[smcSlot] := CurrentBar;
+          smcEventoEstado[smcSlot] := SMCFato;
+          smcEventoLo[smcSlot] := topoInterno;
+          smcEventoHi[smcSlot] := topoInterno;
+          smcEventoBrutoLo[smcSlot] := topoInterno;
+          smcEventoBrutoHi[smcSlot] := topoInterno;
+          smcContador := smcContador + 1;
+        end;
       end;
     end;
 
@@ -354,6 +570,20 @@ begin
         else
           PlotText("BOS interno alta", clLime, 3, 8, topoInterno);
       end;
+      if smcColeta then
+      begin
+        smcSlot := smcBase + smcContador;
+        smcEventoFaixa[smcSlot] := 5;
+        smcEventoOrigem[smcSlot] := barraTopoInterno;
+        smcEventoRef[smcSlot] := -1;
+        smcEventoNascimento[smcSlot] := CurrentBar;
+        smcEventoEstado[smcSlot] := SMCFato;
+        smcEventoLo[smcSlot] := topoInterno;
+        smcEventoHi[smcSlot] := topoInterno;
+        smcEventoBrutoLo[smcSlot] := viesInterno;
+        smcEventoBrutoHi[smcSlot] := 1;
+        smcContador := smcContador + 1;
+      end;
       topoInternoRompido := True;
       viesInterno := 1;
     end;
@@ -371,6 +601,20 @@ begin
         else
           PlotText("BOS interno baixa", clRed, 3, 8, fundoInterno);
       end;
+      if smcColeta then
+      begin
+        smcSlot := smcBase + smcContador;
+        smcEventoFaixa[smcSlot] := 6;
+        smcEventoOrigem[smcSlot] := barraFundoInterno;
+        smcEventoRef[smcSlot] := -1;
+        smcEventoNascimento[smcSlot] := CurrentBar;
+        smcEventoEstado[smcSlot] := SMCFato;
+        smcEventoLo[smcSlot] := fundoInterno;
+        smcEventoHi[smcSlot] := fundoInterno;
+        smcEventoBrutoLo[smcSlot] := viesInterno;
+        smcEventoBrutoHi[smcSlot] := -1;
+        smcContador := smcContador + 1;
+      end;
       fundoInternoRompido := True;
       viesInterno := -1;
     end;
@@ -386,6 +630,20 @@ begin
         PlotText("CHoCH alta", clGreen, 3, 8, nivelTopo)
       else
         PlotText("BOS alta", clGreen, 3, 8, nivelTopo);
+    end;
+    if smcColeta then
+    begin
+      smcSlot := smcBase + smcContador;
+      smcEventoFaixa[smcSlot] := 7;
+      smcEventoOrigem[smcSlot] := barraTopo;
+      smcEventoRef[smcSlot] := -1;
+      smcEventoNascimento[smcSlot] := CurrentBar;
+      smcEventoEstado[smcSlot] := SMCFato;
+      smcEventoLo[smcSlot] := nivelTopo;
+      smcEventoHi[smcSlot] := nivelTopo;
+      smcEventoBrutoLo[smcSlot] := vies;
+      smcEventoBrutoHi[smcSlot] := 1;
+      smcContador := smcContador + 1;
     end;
     topoRompido := True;
     vies := 1;
@@ -403,6 +661,20 @@ begin
         PlotText("CHoCH baixa", clRed, 3, 8, nivelFundo)
       else
         PlotText("BOS baixa", clRed, 3, 8, nivelFundo);
+    end;
+    if smcColeta then
+    begin
+      smcSlot := smcBase + smcContador;
+      smcEventoFaixa[smcSlot] := 8;
+      smcEventoOrigem[smcSlot] := barraFundo;
+      smcEventoRef[smcSlot] := -1;
+      smcEventoNascimento[smcSlot] := CurrentBar;
+      smcEventoEstado[smcSlot] := SMCFato;
+      smcEventoLo[smcSlot] := nivelFundo;
+      smcEventoHi[smcSlot] := nivelFundo;
+      smcEventoBrutoLo[smcSlot] := vies;
+      smcEventoBrutoHi[smcSlot] := -1;
+      smcContador := smcContador + 1;
     end;
     fundoRompido := True;
     vies := -1;
@@ -429,7 +701,7 @@ begin
   else if ModoFaixaOB = 0 then
     NoPlot(4);
 
-  if calculaBlocosInternos or calculaBlocosSwing or calculaEQ then
+  if calculaOBInterno or calculaOBSwing or observaEQ then
   begin
     trAtual := High - Low;
     somaTR := 0;
@@ -447,7 +719,7 @@ begin
       atrWilder := (199 * atrWilder[1] + trAtual) / 200;
   end;
 
-  if calculaEQ then
+  if observaEQ then
   begin
     janelaEQ := BarrasConfirmacaoEQ;
     if janelaEQ < 1 then
@@ -483,14 +755,52 @@ begin
         if pernaEQ = 1 then
         begin
           if temFundoEQ and (Abs(Low[janelaEQ] - fundoEQ) < toleranciaEQ) then
-            PlotText("EQL", clLime, 3, 8, Low[janelaEQ]);
+          begin
+            if calculaEQ then
+              PlotText("EQL", clLime, 3, 8, Low[janelaEQ]);
+            if smcColeta then
+            begin
+              smcSlot := smcBase + smcContador;
+              smcEventoFaixa[smcSlot] := 16;
+              smcEventoOrigem[smcSlot] := CurrentBar - janelaEQ;
+              smcEventoRef[smcSlot] := smcOrigemEQFundo;
+              smcEventoNascimento[smcSlot] := CurrentBar;
+              smcEventoEstado[smcSlot] := SMCFato;
+              smcEventoLo[smcSlot] := fundoEQ;
+              smcEventoHi[smcSlot] := Low[janelaEQ];
+              smcEventoBrutoLo[smcSlot] := fundoEQ;
+              smcEventoBrutoHi[smcSlot] := Low[janelaEQ];
+              smcContador := smcContador + 1;
+            end;
+          end;
+          if smcColeta then
+            smcOrigemEQFundo := CurrentBar - janelaEQ;
           fundoEQ := Low[janelaEQ];
           temFundoEQ := True;
         end
         else
         begin
           if temTopoEQ and (Abs(High[janelaEQ] - topoEQ) < toleranciaEQ) then
-            PlotText("EQH", clRed, 3, 8, High[janelaEQ]);
+          begin
+            if calculaEQ then
+              PlotText("EQH", clRed, 3, 8, High[janelaEQ]);
+            if smcColeta then
+            begin
+              smcSlot := smcBase + smcContador;
+              smcEventoFaixa[smcSlot] := 15;
+              smcEventoOrigem[smcSlot] := CurrentBar - janelaEQ;
+              smcEventoRef[smcSlot] := smcOrigemEQTopo;
+              smcEventoNascimento[smcSlot] := CurrentBar;
+              smcEventoEstado[smcSlot] := SMCFato;
+              smcEventoLo[smcSlot] := topoEQ;
+              smcEventoHi[smcSlot] := High[janelaEQ];
+              smcEventoBrutoLo[smcSlot] := topoEQ;
+              smcEventoBrutoHi[smcSlot] := High[janelaEQ];
+              smcContador := smcContador + 1;
+            end;
+          end;
+          if smcColeta then
+            smcOrigemEQTopo := CurrentBar - janelaEQ;
           topoEQ := High[janelaEQ];
           temTopoEQ := True;
         end;
@@ -498,7 +808,7 @@ begin
     end;
   end;
 
-  if calculaBlocosInternos or calculaBlocosSwing then
+  if calculaOBInterno or calculaOBSwing then
   begin
     volatilidade := atrWilder;
     if (not UsarATRBlocos) and (CurrentBar > 0) then
@@ -520,13 +830,13 @@ begin
       buscas[evento] := 0;
       origens[evento] := 0;
     end;
-    if calculaBlocosInternos and rompeTopoInterno then
+    if calculaOBInterno and rompeTopoInterno then
       buscas[1] := CurrentBar - barraTopoInterno;
-    if calculaBlocosInternos and rompeFundoInterno then
+    if calculaOBInterno and rompeFundoInterno then
       buscas[2] := CurrentBar - barraFundoInterno;
-    if calculaBlocosSwing and rompeTopo then
+    if calculaOBSwing and rompeTopo then
       buscas[3] := CurrentBar - barraTopo;
-    if calculaBlocosSwing and rompeFundo then
+    if calculaOBSwing and rompeFundo then
       buscas[4] := CurrentBar - barraFundo;
 
     for evento := 1 to 4 do
@@ -573,9 +883,9 @@ begin
 
     primeiroGrupo := 0;
     ultimoGrupo := 1;
-    if not calculaBlocosInternos then
+    if not calculaOBInterno then
       primeiroGrupo := 1;
-    if not calculaBlocosSwing then
+    if not calculaOBSwing then
       ultimoGrupo := 0;
 
     if (ModoFaixaOB = 0) and LastBarOnChart then
@@ -611,6 +921,38 @@ begin
       if descarte < 0 then
         descarte := 0;
 
+      // Inspecionar as saidas no quadro anterior, antes que este seja reciclado.
+      if smcColeta and (totalAnterior > 0) then
+        for leitura := 1 to totalAnterior do
+        begin
+          indiceAnterior := baseAnterior + leitura;
+          lado := direcoes[indiceAnterior];
+          smcMotivo := SMCAtivo;
+          if leitura <= descarte then
+            smcMotivo := SMCDescarte
+          else if ((lado = 1) and (precoBaixa < inferioresBlocos[indiceAnterior]))
+            or ((lado = -1) and (precoAlta > superioresBlocos[indiceAnterior])) then
+            smcMotivo := SMCMitigado;
+          if smcMotivo <> SMCAtivo then
+          begin
+            smcPosicao := 0;
+            if lado = -1 then
+              smcPosicao := 1;
+            smcDeslocamento := CurrentBar - smcOrigemOB[indiceAnterior];
+              smcSlot := smcBase + smcContador;
+              smcEventoFaixa[smcSlot] := 9 + grupo * 2 + smcPosicao;
+              smcEventoOrigem[smcSlot] := smcOrigemOB[indiceAnterior];
+              smcEventoRef[smcSlot] := smcPivoOB[indiceAnterior];
+              smcEventoNascimento[smcSlot] := criacoesBlocos[indiceAnterior];
+              smcEventoEstado[smcSlot] := smcMotivo;
+              smcEventoLo[smcSlot] := inferioresBlocos[indiceAnterior];
+              smcEventoHi[smcSlot] := superioresBlocos[indiceAnterior];
+              smcEventoBrutoLo[smcSlot] := Low[smcDeslocamento];
+              smcEventoBrutoHi[smcSlot] := High[smcDeslocamento];
+              smcContador := smcContador + 1;
+          end;
+        end;
+
       total := 0;
       if totalAnterior > descarte then
         for leitura := descarte + 1 to totalAnterior do
@@ -628,6 +970,11 @@ begin
             criacoesBlocos[indiceAtual] := criacoesBlocos[indiceAnterior];
             superioresBlocos[indiceAtual] := superioresBlocos[indiceAnterior];
             inferioresBlocos[indiceAtual] := inferioresBlocos[indiceAnterior];
+            if smcColeta then
+            begin
+              smcOrigemOB[indiceAtual] := smcOrigemOB[indiceAnterior];
+              smcPivoOB[indiceAtual] := smcPivoOB[indiceAnterior];
+            end;
           end
           else if calculaBreaker and (grupo = 1) and (lado = ladoOrigemBreaker) then
           begin
@@ -649,6 +996,24 @@ begin
           lado := 1;
           if evento > primeiroEvento then
             lado := -1;
+          if smcColeta then
+          begin
+            smcMotivo := SMCAtivo;
+            if ((lado = 1) and (precoBaixa < limiteInferior))
+              or ((lado = -1) and (precoAlta > limiteSuperior)) then
+              smcMotivo := SMCRejeitado;
+            smcSlot := smcBase + smcContador;
+            smcEventoFaixa[smcSlot] := 8 + evento;
+            smcEventoOrigem[smcSlot] := CurrentBar - origem;
+            smcEventoRef[smcSlot] := CurrentBar - buscas[evento];
+            smcEventoNascimento[smcSlot] := CurrentBar;
+            smcEventoEstado[smcSlot] := smcMotivo;
+            smcEventoLo[smcSlot] := limiteInferior;
+            smcEventoHi[smcSlot] := limiteSuperior;
+            smcEventoBrutoLo[smcSlot] := Low[origem];
+            smcEventoBrutoHi[smcSlot] := High[origem];
+            smcContador := smcContador + 1;
+          end;
           if ((lado = 1) and (precoBaixa >= limiteInferior))
             or ((lado = -1) and (precoAlta <= limiteSuperior)) then
           begin
@@ -660,12 +1025,18 @@ begin
             criacoesBlocos[indiceAtual] := CurrentBar;
             superioresBlocos[indiceAtual] := limiteSuperior;
             inferioresBlocos[indiceAtual] := limiteInferior;
+            if smcColeta then
+            begin
+              smcOrigemOB[indiceAtual] := CurrentBar - origem;
+              smcPivoOB[indiceAtual] := CurrentBar - buscas[evento];
+            end;
           end;
         end;
       end;
       quantidadesBlocos[listaAtual] := total;
 
-      if (ModoFaixaOB = 0) and LastBarOnChart then
+      if (ModoFaixaOB = 0) and LastBarOnChart
+        and (((grupo = 0) and calculaBlocosInternos) or ((grupo = 1) and calculaBlocosSwing)) then
       begin
         quantidade := QuantidadeBlocosInternos;
         if grupo = 1 then
@@ -905,7 +1276,7 @@ begin
     end;
   end;
 
-  if exibeFVG or calculaBreaker then
+  if calculaFVG or calculaBreaker then
   begin
     ladoNovoFVG := 0;
     retornoFVG := 0;
@@ -929,7 +1300,7 @@ begin
     end;
   end;
 
-  if exibeFVG then
+  if calculaFVG then
   begin
     extensaoEfetivaFVG := ExtensaoFVG;
     if extensaoEfetivaFVG < 0 then
@@ -956,6 +1327,32 @@ begin
       for leituraFVG := 1 to totalAnteriorFVG do
       begin
         entradaFVG := baseAnteriorFVG + leituraFVG;
+        if smcColeta then
+        begin
+          smcMotivo := SMCAtivo;
+          if ((direcoesFVG[entradaFVG] = 1) and (Low < inferioresFVG[entradaFVG]))
+            or ((direcoesFVG[entradaFVG] = -1) and (High > superioresFVG[entradaFVG])) then
+            smcMotivo := SMCMitigado
+          else if totalFVG >= CapacidadeFVG then
+            smcMotivo := SMCDescarte;
+          if smcMotivo <> SMCAtivo then
+          begin
+            smcFaixa := 13;
+            if direcoesFVG[entradaFVG] = -1 then
+              smcFaixa := 14;
+            smcSlot := smcBase + smcContador;
+            smcEventoFaixa[smcSlot] := smcFaixa;
+            smcEventoOrigem[smcSlot] := formacoesFVG[entradaFVG] - 1;
+            smcEventoRef[smcSlot] := formacoesFVG[entradaFVG] - 2;
+            smcEventoNascimento[smcSlot] := formacoesFVG[entradaFVG];
+            smcEventoEstado[smcSlot] := smcMotivo;
+            smcEventoLo[smcSlot] := inferioresFVG[entradaFVG];
+            smcEventoHi[smcSlot] := superioresFVG[entradaFVG];
+            smcEventoBrutoLo[smcSlot] := inferioresFVG[entradaFVG];
+            smcEventoBrutoHi[smcSlot] := superioresFVG[entradaFVG];
+            smcContador := smcContador + 1;
+          end;
+        end;
         if (totalFVG < CapacidadeFVG) and
           (((direcoesFVG[entradaFVG] = 1) and (Low >= inferioresFVG[entradaFVG]))
           or ((direcoesFVG[entradaFVG] = -1) and (High <= superioresFVG[entradaFVG]))) then
@@ -997,11 +1394,28 @@ begin
         inferioresFVG[saidaFVG] := High;
         superioresFVG[saidaFVG] := Low[2];
       end;
+      if smcColeta then
+      begin
+        smcFaixa := 13;
+        if ladoNovoFVG = -1 then
+          smcFaixa := 14;
+        smcSlot := smcBase + smcContador;
+        smcEventoFaixa[smcSlot] := smcFaixa;
+        smcEventoOrigem[smcSlot] := CurrentBar - 1;
+        smcEventoRef[smcSlot] := CurrentBar - 2;
+        smcEventoNascimento[smcSlot] := CurrentBar;
+        smcEventoEstado[smcSlot] := SMCAtivo;
+        smcEventoLo[smcSlot] := inferioresFVG[saidaFVG];
+        smcEventoHi[smcSlot] := superioresFVG[saidaFVG];
+        smcEventoBrutoLo[smcSlot] := inferioresFVG[saidaFVG];
+        smcEventoBrutoHi[smcSlot] := superioresFVG[saidaFVG];
+        smcContador := smcContador + 1;
+      end;
     end;
     quantidadesFVG[quadroFVG] := totalFVG;
     carimbosFVG[quadroFVG] := CurrentBar + 1;
 
-    if LastBarOnChart then
+    if exibeFVG and LastBarOnChart then
     begin
       visiveisFVG := totalFVG;
       if visiveisFVG > LimiteFaixasFVG then
@@ -1209,6 +1623,504 @@ begin
       if (horaBreaker <> 0) and (dataCandle > diaBreaker) then
         HorizontalLineCustom(centroBreaker, clLtGray, 1, 0, "", 8, 1,
           CalcDate(diaBreaker, 1), 0, alturaBreaker);
+    end;
+  end;
+
+  if smcColeta then
+  begin
+    smcLotes[smcQuadro] := smcContador;
+    smcCarimbos[smcQuadro] := CurrentBar + 1;
+  end;
+
+  // t+1 fecha o lote de t. LastBarOnChart tambem vale durante a formacao.
+  if DebugSMC and (CurrentBar > 0) and (CurrentBar - 1 > smcUltimaPublicacao) then
+  begin
+    smcBarra := CurrentBar - 1;
+    smcQuadro := Mod(smcBarra, 2);
+    smcLoteAusente := (smcCarimbos[smcQuadro] <> CurrentBar)
+      or (smcUltimaPublicacao <> CurrentBar - 2);
+    if not smcLoteAusente then
+    begin
+      smcOrigemPublicada := smcBarra;
+      smcUltimaPublicacao := smcBarra;
+      smcPrimeiro := smcQuadro * SMCLote;
+      smcUltimo := smcPrimeiro + smcLotes[smcQuadro] - 1;
+      smcDataConfirmada := dataCandle[1];
+      smcHoraConfirmada := horaCandle[1];
+      smcTick := MinPriceIncrement;
+      smcBarraValida := smcConfigValida and (smcTick > 0) and (High[1] >= Low[1])
+        and (High[1] >= Max(Open[1], Close[1])) and (Low[1] <= Min(Open[1], Close[1]));
+      if smcBarraValida then
+      begin
+        smcBarrasValidas := smcBarrasValidas + 1;
+        smcFechamentoTicks := Round(Close[1] / smcTick);
+        smcTR := High[1] - Low[1];
+        if smcTemAnterior and (CurrentBar > 1) then
+        begin
+          smcAnteriorTicks := Round(Close[2] / smcTick);
+          smcTR := Max(smcTR, Max(Abs(High[1] - Close[2]), Abs(Low[1] - Close[2])));
+        end;
+        if smcAmostrasATR < PeriodoATRSMC then
+        begin
+          smcAmostrasATR := smcAmostrasATR + 1;
+          smcSomaTR := smcSomaTR + smcTR;
+          if smcAmostrasATR = PeriodoATRSMC then
+            smcATR := smcSomaTR / PeriodoATRSMC;
+        end
+        else
+          smcATR := ((PeriodoATRSMC - 1) * smcATR + smcTR) / PeriodoATRSMC;
+        smcATRDisponivel := smcAmostrasATR = PeriodoATRSMC;
+      end
+      else
+      begin
+        smcBarrasValidas := 0;
+        smcAmostrasATR := 0;
+        smcSomaTR := 0;
+        smcATR := 0;
+        smcATRDisponivel := False;
+      end;
+
+      for smcLado := 1 to 4 do
+      begin
+        smcPivoNaBarra[smcLado] := -1;
+        smcBreakNaBarra[smcLado] := -1;
+      end;
+      if smcUltimo >= smcPrimeiro then
+        for smcIndice := smcPrimeiro to smcUltimo do
+        begin
+          smcFaixa := smcEventoFaixa[smcIndice];
+          smcEventoQualificacao[smcIndice] := 0;
+          smcEventoBarraQualificacao[smcIndice] := -1;
+          if smcFaixa <= 4 then
+          begin
+            smcPivoNaBarra[smcFaixa] := smcIndice;
+            smcEventoRef[smcIndice] := smcPivoConfirmado[smcFaixa];
+          end
+          else if smcFaixa <= 8 then
+          begin
+            smcLado := smcFaixa - 4;
+            smcBreakNaBarra[smcLado] := smcIndice;
+            smcEventoRef[smcIndice] := smcPivoConfirmado[smcLado];
+            if smcPivoNaBarra[smcLado] >= 0 then
+              smcEventoRef[smcIndice] := smcBarra;
+          end;
+        end;
+
+      // Consultar o historico anterior a t. Pivos de t entram depois das rupturas.
+      for smcEscala := 0 to 1 do
+      begin
+        smcAntigoFluxo := smcFluxo[smcEscala];
+        smcMotivoFluxo := 0;
+        smcHistBase := smcEscala * SMCHistPivos;
+        smcHistQtd := smcHistTotal[smcEscala];
+        if not smcBarraValida then
+          smcMotivoFluxo := SMCDadosInvalidos
+        else if smcAntigoFluxo = SMCTransicao then
+        begin
+          if smcTemExtremoTransicao[smcEscala] then
+          begin
+            smcNivelTicks := Round(smcExtremoTransicao[smcEscala] / smcTick);
+            if (smcFechamentoTicks - smcNivelTicks) * smcDirecaoTransicao[smcEscala] > 0 then
+            begin
+              smcFluxo[smcEscala] := 0;
+              smcContexto[smcEscala] := smcContexto[smcEscala] + 1;
+              smcMotivoFluxo := SMCRetornoExtremo;
+            end;
+          end;
+        end
+        else if smcProtecaoConfirmacao[smcEscala] >= 0 then
+        begin
+          smcNivelTicks := Round(smcProtecaoPreco[smcEscala] / smcTick);
+          if (smcFechamentoTicks - smcNivelTicks) * smcAntigoFluxo < 0 then
+          begin
+            smcFluxo[smcEscala] := SMCTransicao;
+            smcDirecaoTransicao[smcEscala] := smcAntigoFluxo;
+            smcDesdeTransicao[smcEscala] := smcBarra;
+            smcContexto[smcEscala] := smcContexto[smcEscala] + 1;
+            smcMotivoFluxo := SMCPerdaProtecao;
+            smcProtecaoConfirmacao[smcEscala] := -1;
+            smcTemExtremoTransicao[smcEscala] := False;
+            if smcHistQtd > 0 then
+            begin
+              smcPosicao := smcHistInicio[smcEscala] + smcHistQtd - 1;
+              smcHistPos := smcHistBase + Mod(smcPosicao, SMCHistPivos);
+              if (smcHistLado[smcHistPos] <> smcAntigoFluxo) and (smcHistQtd > 1) then
+                smcHistPos := smcHistBase + Mod(smcPosicao - 1, SMCHistPivos);
+              if smcHistLado[smcHistPos] = smcAntigoFluxo then
+              begin
+                smcTemExtremoTransicao[smcEscala] := True;
+                smcExtremoTransicao[smcEscala] := smcHistPreco[smcHistPos];
+              end;
+            end;
+          end;
+        end;
+        for smcLado := smcEscala * 2 + 1 to smcEscala * 2 + 2 do
+        begin
+          smcDirecao := 1;
+          if Mod(smcLado, 2) = 0 then
+            smcDirecao := -1;
+          smcQuebra := smcEspera[smcLado];
+          smcResultado := 0;
+          if smcQuebra >= 0 then
+          begin
+            if not smcBarraValida then
+              smcResultado := SMCDadosInvalidos
+            else if smcPivoNaBarra[smcLado] >= 0 then
+              smcResultado := SMCAlvoSubstituido
+            else if smcEsperaContexto[smcLado] <> smcContexto[smcEscala] then
+              smcResultado := SMCContextoPerdido
+            else
+            begin
+              smcNivelTicks := Round(smcEventoLo[smcQuebra] / smcTick);
+              smcDistanciaTicks := (smcFechamentoTicks - smcNivelTicks) * smcDirecao;
+              if smcDistanciaTicks <= 0 then
+                smcResultado := SMCCancelado
+              else if (smcBarra - smcEventoNascimento[smcQuebra] <= SMCPrazoRuptura)
+                and (smcDistanciaTicks >= BufferRupturaSMCTicks) then
+                smcResultado := SMCQualificado
+              else if smcBarra - smcEventoNascimento[smcQuebra] >= SMCPrazoRuptura then
+                smcResultado := SMCExpirado;
+            end;
+            if smcResultado <> 0 then
+            begin
+              smcEventoQualificacao[smcQuebra] := smcResultado;
+              smcEventoBarraQualificacao[smcQuebra] := smcBarra;
+              smcEspera[smcLado] := -1;
+            end;
+          end;
+
+          if smcBreakNaBarra[smcLado] >= 0 then
+          begin
+            smcQuebra := smcBreakNaBarra[smcLado];
+            smcQuebraRef := smcEventoRef[smcQuebra];
+            if (smcQuebraRef < 0) or (smcQuebraRef >= smcBarra) then
+              smcResultado := SMCTargetNotPreknown
+            else if not (smcBarraValida and smcTemAnterior and smcPivoValido[smcLado]) then
+              smcResultado := SMCDadosInvalidos
+            else
+            begin
+              smcNivelTicks := Round(smcEventoLo[smcQuebra] / smcTick);
+              smcDistanciaTicks := (smcFechamentoTicks - smcNivelTicks) * smcDirecao;
+              smcCruzamentoValido := ((smcAnteriorTicks - smcNivelTicks) * smcDirecao <= 0)
+                and (smcDistanciaTicks > 0);
+              smcResultado := SMCSemCruzamento;
+              if smcCruzamentoValido then
+              begin
+                if smcDistanciaTicks >= BufferRupturaSMCTicks then
+                  smcResultado := SMCQualificado
+                else
+                begin
+                  smcResultado := SMCAguardando;
+                  smcEspera[smcLado] := smcQuebra;
+                  smcEsperaContexto[smcLado] := smcContexto[smcEscala];
+                end;
+              end;
+            end;
+            smcEventoQualificacao[smcQuebra] := smcResultado;
+            if smcResultado <> SMCAguardando then
+              smcEventoBarraQualificacao[smcQuebra] := smcBarra;
+          end;
+
+          // Uma ruptura causal usa somente contexto disponivel antes da barra.
+          if smcResultado = SMCQualificado then
+          begin
+            smcQuebraOrigem := smcEventoOrigem[smcQuebra];
+            smcMudaFluxo := False;
+            smcAlvo := -1;
+            smcHistOposto := -1;
+            // Em um historico alternado, os dois ultimos representam os dois lados.
+            if smcHistQtd > 0 then
+            begin
+              smcHistRecente := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 1, SMCHistPivos);
+              smcHistSegundo := -1;
+              if smcHistQtd > 1 then
+                smcHistSegundo := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 2, SMCHistPivos);
+              if smcHistLado[smcHistRecente] = smcDirecao then
+              begin
+                smcAlvo := smcHistRecente;
+                smcHistOposto := smcHistSegundo;
+              end
+              else
+              begin
+                smcAlvo := smcHistSegundo;
+                smcHistOposto := smcHistRecente;
+              end;
+              if smcAlvo >= 0 then
+                if smcHistConfirmacao[smcAlvo] <> smcEventoRef[smcQuebra] then
+                  smcAlvo := -1;
+            end;
+            if (smcAlvo >= 0) and (smcFluxo[smcEscala] = 0) and (smcHistQtd >= 4) then
+            begin
+              smcHistTerceiro := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 3, SMCHistPivos);
+              smcHistQuarto := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 4, SMCHistPivos);
+              smcCoerente :=
+                ((Round(smcHistPreco[smcHistRecente] / smcTick) - Round(smcHistPreco[smcHistTerceiro] / smcTick))
+                  * smcDirecao > ToleranciaSMCTicks)
+                and ((Round(smcHistPreco[smcHistSegundo] / smcTick) - Round(smcHistPreco[smcHistQuarto] / smcTick))
+                  * smcDirecao > ToleranciaSMCTicks);
+              smcMudaFluxo := smcCoerente;
+            end
+            else if (smcAlvo >= 0) and (smcFluxo[smcEscala] = SMCTransicao)
+              and (smcDirecao = -smcDirecaoTransicao[smcEscala])
+              and (smcQuebraOrigem > smcDesdeTransicao[smcEscala]) and (smcHistOposto >= 0) then
+              smcMudaFluxo := smcHistOrigem[smcHistOposto] > smcQuebraOrigem;
+
+            if smcMudaFluxo then
+            begin
+              smcFluxo[smcEscala] := smcDirecao;
+              smcContexto[smcEscala] := smcContexto[smcEscala] + 1;
+            end;
+
+            if (smcAlvo >= 0) and (smcFluxo[smcEscala] = smcDirecao) and
+              (smcMudaFluxo or (smcEventoBrutoLo[smcQuebra] <> -smcDirecao)) then
+            begin
+              smcProtecaoConfirmacao[smcEscala] := -1;
+              if smcHistOposto >= 0 then
+                if smcHistOrigem[smcHistOposto] > smcQuebraOrigem then
+                begin
+                  smcProtecaoConfirmacao[smcEscala] := smcHistConfirmacao[smcHistOposto];
+                  smcProtecaoOrigem[smcEscala] := smcHistOrigem[smcHistOposto];
+                  smcProtecaoPreco[smcEscala] := smcHistPreco[smcHistOposto];
+                end;
+              if (smcProtecaoConfirmacao[smcEscala] < 0) and (smcMotivoFluxo = 0) then
+                smcMotivoFluxo := SMCProtecaoIncerta;
+            end;
+          end;
+        end;
+        // O snapshot sempre pertence ao fechamento, inclusive se continuar neutro.
+        smcUltimo := smcUltimo + 1;
+        smcEventoFaixa[smcUltimo] := 18 + smcEscala;
+        smcEventoNascimento[smcUltimo] := smcBarra;
+        smcEventoRef[smcUltimo] := smcProtecaoConfirmacao[smcEscala];
+        smcEventoOrigem[smcUltimo] := -1;
+        smcEventoLo[smcUltimo] := 0;
+        smcEventoHi[smcUltimo] := 0;
+        if smcProtecaoConfirmacao[smcEscala] >= 0 then
+        begin
+          smcEventoOrigem[smcUltimo] := smcProtecaoOrigem[smcEscala];
+          smcEventoLo[smcUltimo] := smcProtecaoPreco[smcEscala];
+        end;
+        if (smcFluxo[smcEscala] = SMCTransicao) and smcTemExtremoTransicao[smcEscala] then
+          smcEventoHi[smcUltimo] := smcExtremoTransicao[smcEscala];
+        smcEventoBrutoLo[smcUltimo] := smcAntigoFluxo;
+        smcEventoBrutoHi[smcUltimo] := smcFluxo[smcEscala];
+        smcEventoEstado[smcUltimo] := SMCFato;
+        smcEventoQualificacao[smcUltimo] := smcMotivoFluxo;
+        smcEventoBarraQualificacao[smcUltimo] := smcBarra;
+      end;
+
+      // A camada auxiliar retém apenas o extremo mais forte de uma sequência
+      // do mesmo lado. Os registros completos dos pivôs legados não mudam.
+      for smcLado := 1 to 4 do
+        if smcPivoNaBarra[smcLado] >= 0 then
+        begin
+          smcSlot := smcPivoNaBarra[smcLado];
+          smcPivoConfirmado[smcLado] := smcBarra;
+          smcPivoValido[smcLado] := smcBarrasValidas >= CurrentBar - smcEventoOrigem[smcSlot];
+          if not smcPivoValido[smcLado] then
+            smcEventoQualificacao[smcSlot] := SMCDadosInvalidos
+          else
+          begin
+            smcDirecao := 1;
+            smcEscala := 0;
+            if Mod(smcLado, 2) = 0 then
+              smcDirecao := -1;
+            if smcLado > 2 then
+              smcEscala := 1;
+            smcHistBase := smcEscala * SMCHistPivos;
+            smcHistQtd := smcHistTotal[smcEscala];
+            smcOrigem := smcEventoOrigem[smcSlot];
+            smcNivelTicks := Round(smcEventoLo[smcSlot] / smcTick);
+            smcRegistraPivo := True;
+            smcHistUltimo := -1;
+            smcHistPos := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd, SMCHistPivos);
+            if smcHistQtd > 0 then
+            begin
+              smcHistUltimo := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 1, SMCHistPivos);
+              if (smcOrigem < smcHistOrigem[smcHistUltimo]) or
+                ((smcOrigem = smcHistOrigem[smcHistUltimo]) and (smcHistLado[smcHistUltimo] <> smcDirecao)) then
+              begin
+                smcRegistraPivo := False;
+                smcEventoQualificacao[smcSlot] := SMCAmbiguo;
+                if smcOrigem = smcHistOrigem[smcHistUltimo] then
+                  smcHistTotal[smcEscala] := smcHistQtd - 1;
+              end
+              else if smcHistLado[smcHistUltimo] = smcDirecao then
+              begin
+                smcHistPos := smcHistUltimo;
+                smcRegistraPivo := (smcNivelTicks - Round(smcHistPreco[smcHistUltimo] / smcTick)) * smcDirecao >= 0;
+              end;
+            end;
+            if smcRegistraPivo then
+            begin
+              smcHistSegundo := -1;
+              if smcHistPos = smcHistUltimo then
+              begin
+                if smcHistQtd >= 3 then
+                  smcHistSegundo := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 3, SMCHistPivos);
+              end
+              else if smcHistQtd >= 2 then
+                smcHistSegundo := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 2, SMCHistPivos);
+              if smcHistSegundo >= 0 then
+              begin
+                smcDistanciaTicks := smcNivelTicks - Round(smcHistPreco[smcHistSegundo] / smcTick);
+                smcEventoQualificacao[smcSlot] := SMCIgual;
+                if smcDistanciaTicks > ToleranciaSMCTicks then
+                begin
+                  if smcDirecao = 1 then
+                    smcEventoQualificacao[smcSlot] := SMCHH
+                  else
+                    smcEventoQualificacao[smcSlot] := SMCHL;
+                end
+                else if smcDistanciaTicks < -ToleranciaSMCTicks then
+                begin
+                  if smcDirecao = 1 then
+                    smcEventoQualificacao[smcSlot] := SMCLH
+                  else
+                    smcEventoQualificacao[smcSlot] := SMCLL;
+                end;
+              end;
+              smcHistOrigem[smcHistPos] := smcOrigem;
+              smcHistConfirmacao[smcHistPos] := smcBarra;
+              smcHistLado[smcHistPos] := smcDirecao;
+              smcHistPreco[smcHistPos] := smcEventoLo[smcSlot];
+              if smcHistPos <> smcHistUltimo then
+              begin
+                if smcHistQtd < SMCHistPivos then
+                  smcHistTotal[smcEscala] := smcHistQtd + 1
+                else
+                  smcHistInicio[smcEscala] := Mod(smcHistInicio[smcEscala] + 1, SMCHistPivos);
+              end;
+            end;
+          end;
+        end;
+
+      // Particoes por familia, escala e lado. A identidade de um OB/FVG e
+      // preservada na saida; o lote tambem guarda o fato de remocao de t.
+      smcLotes[smcQuadro] := smcUltimo - smcPrimeiro + 1;
+      smcMaiorLote := Max(smcMaiorLote, smcLotes[smcQuadro]);
+      for smcIndice := smcPrimeiro to smcUltimo do
+      begin
+        smcEventoConfirmacao[smcIndice] := smcBarra;
+        smcEventoPublicacao[smcIndice] := CurrentBar;
+        smcEventoData[smcIndice] := smcDataConfirmada;
+        smcEventoHora[smcIndice] := smcHoraConfirmada;
+        smcEventoATR[smcIndice] := smcATR;
+        smcEventoATRValido[smcIndice] := smcATRDisponivel;
+        smcEventoDataOrigem[smcIndice] := 0;
+        smcEventoHoraOrigem[smcIndice] := 0;
+        smcEventoTerminal[smcIndice] := -1;
+        smcEventoDataTerminal[smcIndice] := 0;
+        smcEventoHoraTerminal[smcIndice] := 0;
+        if smcEventoEstado[smcIndice] <> SMCAtivo then
+        begin
+          smcEventoTerminal[smcIndice] := smcBarra;
+          smcEventoDataTerminal[smcIndice] := smcDataConfirmada;
+          smcEventoHoraTerminal[smcIndice] := smcHoraConfirmada;
+        end;
+        if smcEventoOrigem[smcIndice] >= 0 then
+        begin
+          smcDeslocamento := CurrentBar - smcEventoOrigem[smcIndice];
+          smcEventoDataOrigem[smcIndice] := dataCandle[smcDeslocamento];
+          smcEventoHoraOrigem[smcIndice] := horaCandle[smcDeslocamento];
+        end;
+
+        smcFaixa := smcEventoFaixa[smcIndice];
+        smcEventoDadosValidos[smcIndice] := smcBarraValida;
+        if smcFaixa <= 8 then
+          smcEventoDadosValidos[smcIndice] := smcBarraValida
+            and (smcEventoQualificacao[smcIndice] <> SMCDadosInvalidos)
+        else if (smcFaixa <= 16) and (smcEventoNascimento[smcIndice] = smcBarra)
+          and (smcEventoRef[smcIndice] >= 0) then
+          smcEventoDadosValidos[smcIndice] := smcBarrasValidas >= CurrentBar - smcEventoRef[smcIndice];
+        smcInicioFaixa := SMCBaseHistorico + (smcFaixa - 1) * SMCCapacidade;
+        smcFimFaixa := smcInicioFaixa + smcUsados[smcFaixa] - 1;
+        smcAchado := -1;
+        smcTerminal := -1;
+        if (smcFaixa >= 18) and (smcUsados[smcFaixa] = SMCCapacidade) then
+          smcTerminal := smcInicioFaixa + Mod(smcBarra, SMCCapacidade)
+        else if (smcFimFaixa >= smcInicioFaixa) and ((smcUsados[smcFaixa] = SMCCapacidade)
+          or (smcEventoEstado[smcIndice] = SMCMitigado) or (smcEventoEstado[smcIndice] = SMCDescarte)) then
+          for smcDestino := smcInicioFaixa to smcFimFaixa do
+          begin
+            if (smcFaixa >= 9) and (smcFaixa <= 14)
+              and ((smcEventoEstado[smcIndice] = SMCMitigado) or (smcEventoEstado[smcIndice] = SMCDescarte))
+              and (smcEventoNascimento[smcDestino] = smcEventoNascimento[smcIndice]) then
+              smcAchado := smcDestino;
+            if (smcUsados[smcFaixa] = SMCCapacidade)
+              and (smcEventoEstado[smcDestino] <> SMCAtivo)
+              and (smcEventoQualificacao[smcDestino] <> SMCAguardando) then
+            begin
+              if smcTerminal < 0 then
+                smcTerminal := smcDestino
+              else if (Max(smcEventoTerminal[smcDestino], smcEventoBarraQualificacao[smcDestino])
+                  < Max(smcEventoTerminal[smcTerminal], smcEventoBarraQualificacao[smcTerminal]))
+                or ((Max(smcEventoTerminal[smcDestino], smcEventoBarraQualificacao[smcDestino])
+                    = Max(smcEventoTerminal[smcTerminal], smcEventoBarraQualificacao[smcTerminal]))
+                  and (smcEventoNascimento[smcDestino] < smcEventoNascimento[smcTerminal])) then
+                smcTerminal := smcDestino;
+            end;
+          end;
+
+        if smcAchado >= 0 then
+        begin
+          smcEventoEstado[smcAchado] := smcEventoEstado[smcIndice];
+          smcEventoTerminal[smcAchado] := smcBarra;
+          smcEventoDataTerminal[smcAchado] := smcDataConfirmada;
+          smcEventoHoraTerminal[smcAchado] := smcHoraConfirmada;
+        end
+        else
+        begin
+          smcDestino := smcTerminal;
+          if smcUsados[smcFaixa] < SMCCapacidade then
+          begin
+            smcDestino := smcFimFaixa + 1;
+            smcUsados[smcFaixa] := smcUsados[smcFaixa] + 1;
+          end
+          else if smcDestino >= 0 then
+            smcReciclados := smcReciclados + 1;
+
+          if smcDestino >= 0 then
+          begin
+              smcEventoFaixa[smcDestino] := smcEventoFaixa[smcIndice];
+              smcEventoOrigem[smcDestino] := smcEventoOrigem[smcIndice];
+              smcEventoRef[smcDestino] := smcEventoRef[smcIndice];
+              smcEventoNascimento[smcDestino] := smcEventoNascimento[smcIndice];
+              smcEventoEstado[smcDestino] := smcEventoEstado[smcIndice];
+              smcEventoConfirmacao[smcDestino] := smcEventoConfirmacao[smcIndice];
+              smcEventoPublicacao[smcDestino] := smcEventoPublicacao[smcIndice];
+              smcEventoData[smcDestino] := smcEventoData[smcIndice];
+              smcEventoHora[smcDestino] := smcEventoHora[smcIndice];
+              smcEventoDataOrigem[smcDestino] := smcEventoDataOrigem[smcIndice];
+              smcEventoHoraOrigem[smcDestino] := smcEventoHoraOrigem[smcIndice];
+              smcEventoTerminal[smcDestino] := smcEventoTerminal[smcIndice];
+              smcEventoDataTerminal[smcDestino] := smcEventoDataTerminal[smcIndice];
+              smcEventoHoraTerminal[smcDestino] := smcEventoHoraTerminal[smcIndice];
+              smcEventoQualificacao[smcDestino] := smcEventoQualificacao[smcIndice];
+              smcEventoBarraQualificacao[smcDestino] := smcEventoBarraQualificacao[smcIndice];
+              smcEventoLo[smcDestino] := smcEventoLo[smcIndice];
+              smcEventoHi[smcDestino] := smcEventoHi[smcIndice];
+              smcEventoBrutoLo[smcDestino] := smcEventoBrutoLo[smcIndice];
+              smcEventoBrutoHi[smcDestino] := smcEventoBrutoHi[smcIndice];
+              smcEventoATR[smcDestino] := smcEventoATR[smcIndice];
+              smcEventoATRValido[smcDestino] := smcEventoATRValido[smcIndice];
+              smcEventoDadosValidos[smcDestino] := smcEventoDadosValidos[smcIndice];
+          end
+          else
+          begin
+            smcEventoQualificacao[smcIndice] := SMCCapacityFull;
+            smcRejeitadosCapacidade := smcRejeitadosCapacidade + 1;
+          end;
+          if (smcFaixa >= 5) and (smcFaixa <= 8) then
+          begin
+            smcLado := smcFaixa - 4;
+            if smcEspera[smcLado] = smcIndice then
+              smcEspera[smcLado] := smcDestino;
+          end;
+        end;
+        smcPublicados := smcPublicados + 1;
+      end;
+      smcTemAnterior := smcBarraValida;
     end;
   end;
 end;
