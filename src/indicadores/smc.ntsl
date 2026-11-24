@@ -23,6 +23,7 @@ const
   SMCCapacidade = 100;
   SMCUltimoIndice = 2539;
   SMCHistPivos = 200;
+  SMCHistUltimoInterno = 199;
   SMCPrazoRuptura = 100;
   SMCAtivo = 0;
   SMCFato = 1;
@@ -93,6 +94,15 @@ const
   FlipQualConfigInvalida = 5;
   POIForaFib = 16;
   POISemOrigemCausal = 18;
+  IDMCapacidade = 100;
+  IDMUltimoIndice = 199;
+  IDMLimiteVisual = 10;
+  IDMAtivo = 1;
+  IDMTomado = 2;
+  IDMSubstituido = 3;
+  IDMSemProtecao = 4;
+  IDMSemPullback = 5;
+  IDMVinculado = 6;
 
 input
   PeriodoSwing(50);
@@ -176,6 +186,16 @@ input
   MostrarFibFlip(False);
   MostrarExtremeFlip(False);
   MostrarContinuationFlip(False);
+  HabilitarIDM(False);
+  MostrarIDM(False);
+  ModoIDM(0);
+  MinPullbackIDMATR(0.5);
+  MinReacaoIDMATR(0.5);
+  MinDistProtegidoTicks(2);
+  MaxBuscaPullback(100);
+  PoliticaNovoBOS(0);
+  MostrarIDMLow(True);
+  MostrarIDMHigh(True);
 
 var
   periodo, perna, vies : Integer;
@@ -360,6 +380,24 @@ var
   poiRotulo : String;
   poiMeioDiasV : array[1..POILimiteVisual] of Boolean;
 
+  idmCalcula, idmConfigValida, idmElegivel, idmOrdenaAntes : Boolean;
+  idmLado, idmBase, idmSlot, idmDestino, idmTerminal, idmIDTotal : Integer;
+  idmHistPos, idmP, idmAnterior, idmPosterior, idmEscolhido, idmPesquisado, idmOrigemMin : Integer;
+  idmPrecoTicks, idmExtremoTicks, idmProtecaoTicks, idmAlvoTicks, idmInc, idmVinculo, idmIDVinculo : Integer;
+  idmVisiveis, idmPosVisual, idmOutro, idmDataDireita, idmHoraDireita, idmCor : Integer;
+  idmPrecoDesenho : Float;
+  idmRotulo : String;
+  idmUsados, idmMotivo, idmBosMotivo, idmVinculosTotal, idmVinculosProximo : array[1..2] of Integer;
+  idmHistATR : array[0..SMCHistUltimoInterno] of Float;
+  idmHistATRValido : array[0..SMCHistUltimoInterno] of Boolean;
+  idmID, idmEstado, idmOrigem, idmPivo, idmNivelTicks : array[0..IDMUltimoIndice] of Integer;
+  idmProtecaoOrigem, idmProtecaoRef, idmNivelProtegidoTicks, idmBosRef, idmAlvoRef : array[0..IDMUltimoIndice] of Integer;
+  idmAtivacao, idmPublicacao, idmData, idmHora, idmFim, idmDiaFim, idmHoraFim : array[0..IDMUltimoIndice] of Integer;
+  idmVinculoID, idmVinculoPivo, idmVinculoBos, idmVinculoQualificacao : array[0..IDMUltimoIndice] of Integer;
+  idmATR, idmNivel : array[0..IDMUltimoIndice] of Float;
+  idmATRValido : array[0..IDMUltimoIndice] of Boolean;
+  idmVisual : array[1..IDMLimiteVisual] of Integer;
+
 begin
   // Gravar data e hora em series antes de consultar candles anteriores.
   dataCandle := Date;
@@ -402,7 +440,11 @@ begin
     and (MaxIdadeFlip >= 0) and (MaxVisitasFlip >= 0) and (ModoRetesteFlip >= 0) and (ModoRetesteFlip <= 2)
     and (ReacaoRetesteATRFlip >= 0) and (MaxBarrasRetesteFlip >= 1);
   poiCalcula := flipCalcula and poiConfigValida;
-  smcCalcula := DebugSMC or flipCalcula;
+  idmConfigValida := (ModoIDM = 0) and (MinPullbackIDMATR >= 0) and (MinReacaoIDMATR >= 0)
+    and (MinDistProtegidoTicks >= 0) and (MaxBuscaPullback >= 1)
+    and ((PoliticaNovoBOS = 0) or (PoliticaNovoBOS = 1));
+  idmCalcula := HabilitarIDM and idmConfigValida;
+  smcCalcula := DebugSMC or flipCalcula or idmCalcula;
 
   smcColeta := False;
   if smcCalcula then
@@ -426,6 +468,18 @@ begin
       smcATR := 0;
       smcATRDisponivel := False;
       smcTemAnterior := False;
+      if idmCalcula then
+      begin
+        idmIDTotal := 0;
+        for idmLado := 1 to 2 do
+        begin
+          idmUsados[idmLado] := 0;
+          idmVinculosTotal[idmLado] := 0;
+          idmVinculosProximo[idmLado] := 0;
+          idmMotivo[idmLado] := 0;
+          idmBosMotivo[idmLado] := -1;
+        end;
+      end;
       for smcFaixa := 1 to 19 do
         smcUsados[smcFaixa] := 0;
       for smcLado := 1 to 4 do
@@ -716,7 +770,7 @@ begin
     end;
   end;
 
-  if (MostrarEstruturaInterna or calculaOBInterno or (flipCalcula and (EscalaFlip <> 1))
+  if (MostrarEstruturaInterna or calculaOBInterno or idmCalcula or (flipCalcula and (EscalaFlip <> 1))
     or (poiCalcula and (ModoRetesteFlip = 2)))
     and (CurrentBar >= JanelaInterna) then
   begin
@@ -1898,6 +1952,26 @@ begin
         smcATRDisponivel := False;
       end;
 
+      if idmCalcula and smcBarraValida then
+        for idmLado := 1 to 2 do
+        begin
+          idmBase := (idmLado - 1) * IDMCapacidade;
+          idmExtremoTicks := Round(Low[1] / smcTick);
+          if idmLado = 2 then
+            idmExtremoTicks := Round(High[1] / smcTick);
+          if idmUsados[idmLado] > 0 then
+            for idmSlot := idmBase to idmBase + idmUsados[idmLado] - 1 do
+              if (idmEstado[idmSlot] = IDMAtivo) and (idmAtivacao[idmSlot] < smcBarra) then
+                if ((idmLado = 1) and (idmExtremoTicks < idmNivelTicks[idmSlot]))
+                  or ((idmLado = 2) and (idmExtremoTicks > idmNivelTicks[idmSlot])) then
+                begin
+                  idmEstado[idmSlot] := IDMTomado;
+                  idmFim[idmSlot] := smcBarra;
+                  idmDiaFim[idmSlot] := smcDataConfirmada;
+                  idmHoraFim[idmSlot] := smcHoraConfirmada;
+                end;
+        end;
+
       for smcLado := 1 to 4 do
       begin
         smcPivoNaBarra[smcLado] := -1;
@@ -2111,6 +2185,149 @@ begin
                 end;
               if (smcProtecaoConfirmacao[smcEscala] < 0) and (smcMotivoFluxo = 0) then
                 smcMotivoFluxo := SMCProtecaoIncerta;
+
+              // A proteção e os pivôs internos pertencem ao BOS qualificado.
+              // Este lote ainda não inseriu os pivôs confirmados no próprio B.
+              if idmCalcula and (smcEscala = 1) then
+              begin
+                idmLado := smcLado - 2;
+                idmMotivo[idmLado] := IDMSemProtecao;
+                idmBosMotivo[idmLado] := smcBarra;
+                if smcProtecaoConfirmacao[1] >= 0 then
+                begin
+                  idmMotivo[idmLado] := IDMSemPullback;
+                  idmProtecaoTicks := Round(smcProtecaoPreco[1] / smcTick);
+                  idmAlvoTicks := Round(smcEventoLo[smcQuebra] / smcTick);
+                  idmOrigemMin := Max(smcProtecaoOrigem[1] + 1, smcBarra - MaxBuscaPullback);
+                  idmEscolhido := -1;
+                  if smcHistTotal[0] >= 3 then
+                    for idmHistPos := smcHistTotal[0] - 2 downto 1 do
+                      if idmEscolhido < 0 then
+                      begin
+                        idmP := Mod(smcHistInicio[0] + idmHistPos, SMCHistPivos);
+                        idmAnterior := Mod(smcHistInicio[0] + idmHistPos - 1, SMCHistPivos);
+                        idmPosterior := Mod(smcHistInicio[0] + idmHistPos + 1, SMCHistPivos);
+                        if (smcHistLado[idmP] = -smcDirecao) and (smcHistOrigem[idmP] >= idmOrigemMin)
+                          and (smcHistOrigem[idmP] < smcBarra)
+                          and (smcHistLado[idmAnterior] = smcDirecao) and (smcHistLado[idmPosterior] = smcDirecao)
+                          and (smcHistOrigem[idmAnterior] < smcHistOrigem[idmP])
+                          and (smcHistOrigem[idmPosterior] > smcHistOrigem[idmP])
+                          and (smcHistConfirmacao[idmAnterior] < smcHistConfirmacao[idmP])
+                          and (smcHistConfirmacao[idmPosterior] > smcHistConfirmacao[idmP])
+                          and (smcHistConfirmacao[idmPosterior] < smcBarra)
+                          and ((MinPullbackIDMATR = 0) or idmHistATRValido[idmP])
+                          and ((MinReacaoIDMATR = 0) or idmHistATRValido[idmP]) then
+                        begin
+                          idmPrecoTicks := Round(smcHistPreco[idmP] / smcTick);
+                          idmPesquisado := smcBarra - smcHistOrigem[idmP];
+                          idmElegivel := ((idmPrecoTicks - idmProtecaoTicks) * smcDirecao >= MinDistProtegidoTicks)
+                            and ((idmPrecoTicks - idmProtecaoTicks) * smcDirecao > ToleranciaSMCTicks)
+                            and ((idmAlvoTicks - idmPrecoTicks) * smcDirecao > 0)
+                            and (smcBarrasValidas >= idmPesquisado)
+                            and ((Round(smcHistPreco[idmAnterior] / smcTick) - idmPrecoTicks) * smcDirecao * smcTick
+                              >= Max(smcTick, MinPullbackIDMATR * idmHistATR[idmP]))
+                            and ((Round(smcHistPreco[idmPosterior] / smcTick) - idmPrecoTicks) * smcDirecao * smcTick
+                              >= Max(smcTick, MinReacaoIDMATR * idmHistATR[idmP]));
+                          idmInc := 1;
+                          while idmElegivel and (idmInc <= idmPesquisado) do
+                          begin
+                            idmExtremoTicks := Round(Low[idmInc] / smcTick);
+                            if smcDirecao = -1 then
+                              idmExtremoTicks := Round(High[idmInc] / smcTick);
+                            idmElegivel := (idmExtremoTicks - idmPrecoTicks) * smcDirecao >= 0;
+                            idmInc := idmInc + 1;
+                          end;
+                          if idmElegivel then
+                            idmEscolhido := idmP;
+                        end;
+                      end;
+
+                  if idmEscolhido >= 0 then
+                  begin
+                    idmBase := (idmLado - 1) * IDMCapacidade;
+                    idmPrecoTicks := Round(smcHistPreco[idmEscolhido] / smcTick);
+                    idmIDVinculo := 0;
+                    idmTerminal := -1;
+                    if idmVinculosTotal[idmLado] > 0 then
+                      for idmVinculo := idmBase to idmBase + idmVinculosTotal[idmLado] - 1 do
+                        if idmVinculoPivo[idmVinculo] = smcHistConfirmacao[idmEscolhido] then
+                          idmIDVinculo := idmVinculoID[idmVinculo];
+                    if idmUsados[idmLado] > 0 then
+                      for idmSlot := idmBase to idmBase + idmUsados[idmLado] - 1 do
+                      begin
+                        if (idmIDVinculo = 0) and ((idmPivo[idmSlot] = smcHistConfirmacao[idmEscolhido])
+                          or ((idmEstado[idmSlot] = IDMAtivo) and (idmNivelTicks[idmSlot] = idmPrecoTicks))) then
+                          idmIDVinculo := idmID[idmSlot];
+                        if idmEstado[idmSlot] <> IDMAtivo then
+                        begin
+                          if idmTerminal < 0 then
+                            idmTerminal := idmSlot
+                          else if (idmFim[idmSlot] < idmFim[idmTerminal])
+                            or ((idmFim[idmSlot] = idmFim[idmTerminal]) and (idmID[idmSlot] < idmID[idmTerminal])) then
+                            idmTerminal := idmSlot;
+                        end;
+                      end;
+                    idmMotivo[idmLado] := IDMVinculado;
+                    if idmIDVinculo = 0 then
+                    begin
+                      idmDestino := idmTerminal;
+                      if idmUsados[idmLado] < IDMCapacidade then
+                      begin
+                        idmDestino := idmBase + idmUsados[idmLado];
+                        idmUsados[idmLado] := idmUsados[idmLado] + 1;
+                      end;
+                      idmMotivo[idmLado] := SMCCapacityFull;
+                      if idmDestino >= 0 then
+                      begin
+                        idmIDTotal := idmIDTotal + 1;
+                        idmID[idmDestino] := idmIDTotal;
+                        idmEstado[idmDestino] := IDMAtivo;
+                        idmOrigem[idmDestino] := smcHistOrigem[idmEscolhido];
+                        idmPivo[idmDestino] := smcHistConfirmacao[idmEscolhido];
+                        idmNivelTicks[idmDestino] := idmPrecoTicks;
+                        idmNivel[idmDestino] := idmPrecoTicks * smcTick;
+                        idmProtecaoOrigem[idmDestino] := smcProtecaoOrigem[1];
+                        idmProtecaoRef[idmDestino] := smcProtecaoConfirmacao[1];
+                        idmNivelProtegidoTicks[idmDestino] := idmProtecaoTicks;
+                        idmAlvoRef[idmDestino] := smcEventoRef[smcQuebra];
+                        idmBosRef[idmDestino] := smcEventoNascimento[smcQuebra];
+                        idmATR[idmDestino] := idmHistATR[idmEscolhido];
+                        idmATRValido[idmDestino] := idmHistATRValido[idmEscolhido];
+                        idmAtivacao[idmDestino] := smcBarra;
+                        idmPublicacao[idmDestino] := CurrentBar;
+                        idmData[idmDestino] := smcDataConfirmada;
+                        idmHora[idmDestino] := smcHoraConfirmada;
+                        idmFim[idmDestino] := -1;
+                        idmDiaFim[idmDestino] := 0;
+                        idmHoraFim[idmDestino] := 0;
+                        idmIDVinculo := idmIDTotal;
+                        idmMotivo[idmLado] := IDMAtivo;
+
+                        if PoliticaNovoBOS = 0 then
+                          for idmSlot := idmBase to idmBase + idmUsados[idmLado] - 1 do
+                            if (idmSlot <> idmDestino) and (idmEstado[idmSlot] = IDMAtivo) then
+                            begin
+                              idmEstado[idmSlot] := IDMSubstituido;
+                              idmFim[idmSlot] := smcBarra;
+                              idmDiaFim[idmSlot] := smcDataConfirmada;
+                              idmHoraFim[idmSlot] := smcHoraConfirmada;
+                            end;
+                      end;
+                    end;
+
+                    if idmIDVinculo > 0 then
+                    begin
+                      idmVinculo := idmBase + idmVinculosProximo[idmLado];
+                      idmVinculoID[idmVinculo] := idmIDVinculo;
+                      idmVinculoPivo[idmVinculo] := smcHistConfirmacao[idmEscolhido];
+                      idmVinculoBos[idmVinculo] := smcEventoNascimento[smcQuebra];
+                      idmVinculoQualificacao[idmVinculo] := smcBarra;
+                      idmVinculosProximo[idmLado] := Mod(idmVinculosProximo[idmLado] + 1, IDMCapacidade);
+                      idmVinculosTotal[idmLado] := Min(IDMCapacidade, idmVinculosTotal[idmLado] + 1);
+                    end;
+                  end;
+                end;
+              end;
             end;
             if flipCalcula and (smcAlvo >= 0) and (smcHistOposto >= 0) then
               if smcHistOrigem[smcHistOposto] > smcQuebraOrigem then
@@ -2230,6 +2447,11 @@ begin
               smcHistConfirmacao[smcHistPos] := smcBarra;
               smcHistLado[smcHistPos] := smcDirecao;
               smcHistPreco[smcHistPos] := smcEventoLo[smcSlot];
+              if idmCalcula and (smcEscala = 0) then
+              begin
+                idmHistATR[smcHistPos] := smcATR;
+                idmHistATRValido[smcHistPos] := smcATRDisponivel;
+              end;
               if flipCalcula then
                 flipPivoAdmitido[smcLado] := smcHistPos;
               if smcHistPos <> smcHistUltimo then
@@ -3319,6 +3541,97 @@ begin
   end;
 
   // Seleção estável, com uma chamada por posição e por trecho de sessão.
+  if idmCalcula and MostrarIDM and (ModoFaixaOB = 0) and LastBarOnChart
+    and (CurrentBar > 0) and (smcOrigemPublicada = CurrentBar - 1) then
+  begin
+    idmVisiveis := 0;
+    for idmLado := 1 to 2 do
+      if ((idmLado = 1) and MostrarIDMLow) or ((idmLado = 2) and MostrarIDMHigh) then
+      begin
+        idmBase := (idmLado - 1) * IDMCapacidade;
+        if idmUsados[idmLado] > 0 then
+          for idmSlot := idmBase to idmBase + idmUsados[idmLado] - 1 do
+          begin
+            idmPosVisual := idmVisiveis;
+            idmOrdenaAntes := True;
+            while (idmPosVisual > 0) and idmOrdenaAntes do
+            begin
+              idmOutro := idmVisual[idmPosVisual];
+              idmOrdenaAntes := (idmEstado[idmSlot] = IDMAtivo) and (idmEstado[idmOutro] <> IDMAtivo);
+              if (idmEstado[idmSlot] = IDMAtivo) and (idmEstado[idmOutro] = IDMAtivo) then
+                idmOrdenaAntes := (idmAtivacao[idmSlot] > idmAtivacao[idmOutro])
+                  or ((idmAtivacao[idmSlot] = idmAtivacao[idmOutro]) and (idmID[idmSlot] > idmID[idmOutro]))
+              else if (idmEstado[idmSlot] <> IDMAtivo) and (idmEstado[idmOutro] <> IDMAtivo) then
+                idmOrdenaAntes := (idmFim[idmSlot] > idmFim[idmOutro])
+                  or ((idmFim[idmSlot] = idmFim[idmOutro]) and (idmID[idmSlot] > idmID[idmOutro]));
+              if idmOrdenaAntes then
+              begin
+                if idmPosVisual < IDMLimiteVisual then
+                  idmVisual[idmPosVisual + 1] := idmOutro;
+                idmPosVisual := idmPosVisual - 1;
+              end;
+            end;
+            if idmPosVisual < IDMLimiteVisual then
+            begin
+              idmVisual[idmPosVisual + 1] := idmSlot;
+              idmVisiveis := Min(idmVisiveis + 1, IDMLimiteVisual);
+            end;
+          end;
+      end;
+
+    if idmVisiveis > 0 then
+      for idmPosVisual := 1 to idmVisiveis do
+      begin
+        idmSlot := idmVisual[idmPosVisual];
+        idmPrecoDesenho := idmNivel[idmSlot];
+        idmRotulo := "IDM LOW";
+        idmCor := clGreen;
+        if idmSlot >= IDMCapacidade then
+        begin
+          idmRotulo := "IDM HIGH";
+          idmCor := clRed;
+        end;
+        idmDataDireita := dataCandle;
+        idmHoraDireita := horaCandle;
+        if idmEstado[idmSlot] <> IDMAtivo then
+        begin
+          idmDataDireita := idmDiaFim[idmSlot];
+          idmHoraDireita := idmHoraFim[idmSlot];
+        end;
+        // Uma chamada fixa por posição, como nos desenhos existentes.
+        if idmPosVisual = 1 then
+          LineSegment(idmPrecoDesenho, idmPrecoDesenho, idmData[idmSlot], idmDataDireita, False, idmRotulo,
+            idmCor, 1, 1, 8, 1, idmHora[idmSlot], idmHoraDireita)
+        else if idmPosVisual = 2 then
+          LineSegment(idmPrecoDesenho, idmPrecoDesenho, idmData[idmSlot], idmDataDireita, False, idmRotulo,
+            idmCor, 1, 1, 8, 1, idmHora[idmSlot], idmHoraDireita)
+        else if idmPosVisual = 3 then
+          LineSegment(idmPrecoDesenho, idmPrecoDesenho, idmData[idmSlot], idmDataDireita, False, idmRotulo,
+            idmCor, 1, 1, 8, 1, idmHora[idmSlot], idmHoraDireita)
+        else if idmPosVisual = 4 then
+          LineSegment(idmPrecoDesenho, idmPrecoDesenho, idmData[idmSlot], idmDataDireita, False, idmRotulo,
+            idmCor, 1, 1, 8, 1, idmHora[idmSlot], idmHoraDireita)
+        else if idmPosVisual = 5 then
+          LineSegment(idmPrecoDesenho, idmPrecoDesenho, idmData[idmSlot], idmDataDireita, False, idmRotulo,
+            idmCor, 1, 1, 8, 1, idmHora[idmSlot], idmHoraDireita)
+        else if idmPosVisual = 6 then
+          LineSegment(idmPrecoDesenho, idmPrecoDesenho, idmData[idmSlot], idmDataDireita, False, idmRotulo,
+            idmCor, 1, 1, 8, 1, idmHora[idmSlot], idmHoraDireita)
+        else if idmPosVisual = 7 then
+          LineSegment(idmPrecoDesenho, idmPrecoDesenho, idmData[idmSlot], idmDataDireita, False, idmRotulo,
+            idmCor, 1, 1, 8, 1, idmHora[idmSlot], idmHoraDireita)
+        else if idmPosVisual = 8 then
+          LineSegment(idmPrecoDesenho, idmPrecoDesenho, idmData[idmSlot], idmDataDireita, False, idmRotulo,
+            idmCor, 1, 1, 8, 1, idmHora[idmSlot], idmHoraDireita)
+        else if idmPosVisual = 9 then
+          LineSegment(idmPrecoDesenho, idmPrecoDesenho, idmData[idmSlot], idmDataDireita, False, idmRotulo,
+            idmCor, 1, 1, 8, 1, idmHora[idmSlot], idmHoraDireita)
+        else if idmPosVisual = 10 then
+          LineSegment(idmPrecoDesenho, idmPrecoDesenho, idmData[idmSlot], idmDataDireita, False, idmRotulo,
+            idmCor, 1, 1, 8, 1, idmHora[idmSlot], idmHoraDireita);
+      end;
+  end;
+
   if poiCalcula and (MostrarFaixasFlip or MostrarExtremeFlip or MostrarContinuationFlip)
     and (ModoFaixaOB = 0) and LastBarOnChart
     and (CurrentBar > 0) and (smcOrigemPublicada = CurrentBar - 1) then

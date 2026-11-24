@@ -1,6 +1,6 @@
 # 09C — Flip avançado
 
-Status: ready-for-human
+Status: accepted
 
 Dependência aceita em [09B](09B-flip-poi.md). Escopo da [seção B3](../SPEC_evolucao.md#b3-avançado-09c).
 
@@ -22,7 +22,7 @@ Dependência aceita em [09B](09B-flip-poi.md). Escopo da [seção B3](../SPEC_ev
 
 ## Validação no Profit Pro
 
-Compilação, Replay, renderização e aceite da 09C estão pendentes.
+O usuário informou que os testes da 09C passaram e autorizou a 10A. A revisão aceita está no commit `8671ded`. Versão do Profit, ativo, período, parâmetros e evidências individuais da execução não foram informados.
 
 1. Compilar a revisão acima. Usar `ModoFaixaOB=0`, `HabilitarFlip=True`, `MostrarFlip=True` e `MostrarFaixasFlip=True`. Conferir a equivalência com a 09B com os parâmetros novos nos defaults.
 2. Testar separadamente `ModoFalhaFlip=1` para EQ e `ModoFalhaFlip=2` para sweep local. Ativar `MostrarFibFlip`, `MostrarExtremeFlip` e `MostrarContinuationFlip` e conferir as âncoras em compra e venda.
