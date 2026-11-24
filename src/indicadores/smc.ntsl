@@ -140,6 +140,10 @@ const
   LQDadosInvalidos = 8;
   LQSemFonte = 9;
   LQFonteConsumida = 10;
+  LQAguardaRecuperacao = 11;
+  LQSweep = 12;
+  LQStopHunt = 13;
+  LQBreakSemRecuperacao = 14;
   LQPivoInterno = 1;
   LQPivoSwing = 2;
   LQInducement = 3;
@@ -269,6 +273,12 @@ input
   MostrarRotuloLQ(True);
   MostrarFonteLQ(True);
   MaxCapturasLQVisiveis(20);
+  MostrarSweep(True);
+  MostrarStopHunt(True);
+  MaxBarrasStopHunt(5);
+  PermitirGapPadraoLQ(False);
+  MostrarRupturaPendente(False);
+  MostrarBreakSemRecuperacao(False);
 
 var
   periodo, perna, vies : Integer;
@@ -526,11 +536,14 @@ var
   lqGap, lqTemInterno, lqTemSwing, lqTemIDM : Boolean;
   lqCotaVisual, lqGrupoVisual, lqBaseVisual, lqPosVisual, lqOutro, lqTempoVisual, lqTempoOutro : Integer;
   lqDiaInicio, lqHoraInicio, lqDiaDireita, lqHoraDireita, lqCor, lqEstilo : Integer;
+  lqIdadeRecuperacao, lqMomentoTerminal, lqMomentoOutro : Integer;
   lqRotulo, lqNomeLado : String;
   lqTotalNiveis, lqTotalFontes, lqFontesLivres, lqDiagnostico, lqBarraDiagnostico : array[1..2] of Integer;
   lqID, lqEstado, lqOrigemNivel, lqTicks, lqPrimeiraFonte, lqAtivacao, lqDia, lqHora : array[0..LQUltimoNivel] of Integer;
   lqFim, lqDiaFim, lqHoraFim, lqExtremoTomada, lqPenetracaoTicks, lqPublicacao,
     lqDiaPublicacao, lqHoraPublicacao : array[0..LQUltimoNivel] of Integer;
+  lqDesfecho, lqBarraDesfecho, lqDiaDesfecho, lqHoraDesfecho, lqPublicacaoDesfecho,
+    lqDiaPublicacaoDesfecho, lqHoraPublicacaoDesfecho, lqExtremoCaptura : array[0..LQUltimoNivel] of Integer;
   lqFonteProxima, lqFonteTipo, lqFonteOrigem, lqFonteRef, lqFonteIDMSlot,
     lqFonteAtivacao, lqFonteFim : array[0..LQUltimaFonte] of Integer;
   lqFonteTomada : array[0..LQUltimaFonte] of Boolean;
@@ -595,7 +608,7 @@ begin
     and (ReacaoRetesteATRFlip >= 0) and (MaxBarrasRetesteFlip >= 1);
   poiCalcula := flipCalcula and poiConfigValida;
   lqCalcula := HabilitarCapturasLiquidez and (MinCapturaTicks >= 1) and (BufferRecuperacaoTicks >= 0)
-    and (MinPavioGrab >= 0) and (MinPavioGrab <= 1);
+    and (MinPavioGrab >= 0) and (MinPavioGrab <= 1) and (MaxBarrasStopHunt >= 2);
   smcCalcula := DebugSMC or flipCalcula or idmCalcula or lqCalcula;
 
   smcColeta := False;
@@ -2155,7 +2168,41 @@ begin
           end;
           lqBase := (lqLado - 1) * LQCapacidadeNiveis;
           for lqNivel := lqBase to lqBase + lqTotalNiveis[lqLado] - 1 do
-            if lqEstado[lqNivel] = LQAtivo then
+            if lqDesfecho[lqNivel] = LQAguardaRecuperacao then
+            begin
+              lqResultado := LQAguardaRecuperacao;
+              if not smcBarraValida then
+                lqResultado := LQDadosInvalidos
+              else
+              begin
+                lqIdadeRecuperacao := smcBarra - lqFim[lqNivel];
+                if lqIdadeRecuperacao <= MaxBarrasStopHunt then
+                begin
+                  if (lqExtremo - lqExtremoCaptura[lqNivel]) * lqDirecao > 0 then
+                    lqExtremoCaptura[lqNivel] := lqExtremo;
+                  lqRecuperacao := (lqTicks[lqNivel] - smcFechamentoTicks) * lqDirecao;
+                  if lqRecuperacao >= BufferRecuperacaoTicks then
+                  begin
+                    lqResultado := LQStopHunt;
+                    if lqIdadeRecuperacao = 1 then
+                      lqResultado := LQSweep;
+                  end;
+                end;
+                if (lqResultado = LQAguardaRecuperacao) and (lqIdadeRecuperacao >= MaxBarrasStopHunt) then
+                  lqResultado := LQBreakSemRecuperacao;
+              end;
+              if lqResultado <> LQAguardaRecuperacao then
+              begin
+                lqDesfecho[lqNivel] := lqResultado;
+                lqBarraDesfecho[lqNivel] := smcBarra;
+                lqDiaDesfecho[lqNivel] := smcDataConfirmada;
+                lqHoraDesfecho[lqNivel] := smcHoraConfirmada;
+                lqPublicacaoDesfecho[lqNivel] := CurrentBar;
+                lqDiaPublicacaoDesfecho[lqNivel] := dataCandle;
+                lqHoraPublicacaoDesfecho[lqNivel] := horaCandle;
+              end;
+            end
+            else if lqEstado[lqNivel] = LQAtivo then
             begin
               lqResultado := LQAtivo;
               lqProfundidade := 0;
@@ -2221,10 +2268,14 @@ begin
                 if lqProfundidade > 0 then
                 begin
                   lqExtremoTomada[lqNivel] := lqExtremo;
+                  lqExtremoCaptura[lqNivel] := lqExtremo;
                   lqPenetracaoTicks[lqNivel] := lqProfundidade;
                   lqPublicacao[lqNivel] := CurrentBar;
                   lqDiaPublicacao[lqNivel] := dataCandle;
                   lqHoraPublicacao[lqNivel] := horaCandle;
+                  if (lqResultado = LQBreakStarted) or ((lqResultado = LQGapTaken) and PermitirGapPadraoLQ
+                    and (lqProfundidade >= MinCapturaTicks) and (lqRecuperacao < 0)) then
+                    lqDesfecho[lqNivel] := LQAguardaRecuperacao;
                 end;
                 lqFonte := lqPrimeiraFonte[lqNivel];
                 while lqFonte >= 0 do
@@ -4597,11 +4648,23 @@ begin
                 end
                 else if lqEstado[lqNivel] = LQLivre then
                   lqVaga := lqNivel
-                else if lqTerminal < 0 then
-                  lqTerminal := lqNivel
-                else if (lqFim[lqNivel] < lqFim[lqTerminal])
-                  or ((lqFim[lqNivel] = lqFim[lqTerminal]) and (lqID[lqNivel] < lqID[lqTerminal])) then
-                  lqTerminal := lqNivel;
+                else if lqDesfecho[lqNivel] <> LQAguardaRecuperacao then
+                begin
+                  lqMomentoTerminal := lqFim[lqNivel];
+                  if lqBarraDesfecho[lqNivel] >= 0 then
+                    lqMomentoTerminal := lqBarraDesfecho[lqNivel];
+                  if lqTerminal < 0 then
+                    lqTerminal := lqNivel
+                  else
+                  begin
+                    lqMomentoOutro := lqFim[lqTerminal];
+                    if lqBarraDesfecho[lqTerminal] >= 0 then
+                      lqMomentoOutro := lqBarraDesfecho[lqTerminal];
+                    if (lqMomentoTerminal < lqMomentoOutro)
+                      or ((lqMomentoTerminal = lqMomentoOutro) and (lqID[lqNivel] < lqID[lqTerminal])) then
+                      lqTerminal := lqNivel;
+                  end;
+                end;
 
               lqDuplicado := False;
               if lqSlot >= 0 then
@@ -4659,6 +4722,14 @@ begin
                     lqPublicacao[lqSlot] := -1;
                     lqDiaPublicacao[lqSlot] := 0;
                     lqHoraPublicacao[lqSlot] := 0;
+                    lqDesfecho[lqSlot] := 0;
+                    lqBarraDesfecho[lqSlot] := -1;
+                    lqDiaDesfecho[lqSlot] := 0;
+                    lqHoraDesfecho[lqSlot] := 0;
+                    lqPublicacaoDesfecho[lqSlot] := -1;
+                    lqDiaPublicacaoDesfecho[lqSlot] := 0;
+                    lqHoraPublicacaoDesfecho[lqSlot] := 0;
+                    lqExtremoCaptura[lqSlot] := 0;
                   end;
                   lqFonte := lqFontesLivres[lqLado];
                   if lqFonte >= 0 then
@@ -4695,7 +4766,7 @@ begin
   // Cada posição visual tem uma chamada fixa, como no desenho do IDM.
   if lqCalcula and (ModoFaixaOB = 0) and LastBarOnChart and (CurrentBar > 0)
     and (smcOrigemPublicada = CurrentBar - 1) and (MostrarNiveisLiquidez
-      or (MostrarCapturasLiquidez and MostrarLiquidityGrab and (MostrarLinhaCaptura or MostrarRotuloLQ))) then
+      or (MostrarCapturasLiquidez and (MostrarLinhaCaptura or MostrarRotuloLQ))) then
   begin
     for lqGrupoVisual := 1 to 2 do
     begin
@@ -4706,7 +4777,7 @@ begin
         if not MostrarNiveisLiquidez then
           lqCotaVisual := 0;
       end
-      else if MostrarCapturasLiquidez and MostrarLiquidityGrab and (MostrarLinhaCaptura or MostrarRotuloLQ) then
+      else if MostrarCapturasLiquidez and (MostrarLinhaCaptura or MostrarRotuloLQ) then
       begin
         if MaxCapturasLQVisiveis < lqCotaVisual then
           lqCotaVisual := MaxCapturasLQVisiveis;
@@ -4722,12 +4793,20 @@ begin
             for lqNivel := lqBase to lqBase + lqTotalNiveis[lqLado] - 1 do
             begin
               lqMostrar := ((lqGrupoVisual = 1) and (lqEstado[lqNivel] = LQAtivo))
-                or ((lqGrupoVisual = 2) and (lqEstado[lqNivel] = LQGrab));
+                or ((lqGrupoVisual = 2) and (((lqEstado[lqNivel] = LQGrab) and MostrarLiquidityGrab)
+                  or ((lqDesfecho[lqNivel] = LQSweep) and MostrarSweep)
+                  or ((lqDesfecho[lqNivel] = LQStopHunt) and MostrarStopHunt)
+                  or ((lqDesfecho[lqNivel] = LQAguardaRecuperacao) and MostrarRupturaPendente)
+                  or ((lqDesfecho[lqNivel] = LQBreakSemRecuperacao) and MostrarBreakSemRecuperacao)));
               if lqMostrar then
               begin
                 lqTempoVisual := lqAtivacao[lqNivel];
                 if lqGrupoVisual = 2 then
+                begin
                   lqTempoVisual := lqFim[lqNivel];
+                  if lqBarraDesfecho[lqNivel] >= 0 then
+                    lqTempoVisual := lqBarraDesfecho[lqNivel];
+                end;
                 lqPosVisual := lqQtdEntradas;
                 lqOrdenaAntes := True;
                 while (lqPosVisual > 0) and lqOrdenaAntes do
@@ -4735,7 +4814,11 @@ begin
                   lqOutro := lqVisual[lqBaseVisual + lqPosVisual];
                   lqTempoOutro := lqAtivacao[lqOutro];
                   if lqGrupoVisual = 2 then
+                  begin
                     lqTempoOutro := lqFim[lqOutro];
+                    if lqBarraDesfecho[lqOutro] >= 0 then
+                      lqTempoOutro := lqBarraDesfecho[lqOutro];
+                  end;
                   lqOrdenaAntes := (lqTempoVisual > lqTempoOutro)
                     or ((lqTempoVisual = lqTempoOutro) and (lqID[lqNivel] > lqID[lqOutro]));
                   if lqOrdenaAntes then
@@ -4769,7 +4852,18 @@ begin
         begin
           lqRotulo := lqNomeLado;
           if lqGrupoVisual = 2 then
-            lqRotulo := "LG " + lqNomeLado;
+          begin
+            if lqEstado[lqNivel] = LQGrab then
+              lqRotulo := "LG " + lqNomeLado
+            else if lqDesfecho[lqNivel] = LQSweep then
+              lqRotulo := "SW " + lqNomeLado
+            else if lqDesfecho[lqNivel] = LQStopHunt then
+              lqRotulo := "SH " + lqNomeLado
+            else if lqDesfecho[lqNivel] = LQAguardaRecuperacao then
+              lqRotulo := "Ruptura pendente " + lqNomeLado
+            else
+              lqRotulo := "Break sem recuperação " + lqNomeLado;
+          end;
           if MostrarFonteLQ then
           begin
             lqTemInterno := False;
@@ -4806,12 +4900,28 @@ begin
           lqEstilo := 0;
           lqDiaDireita := lqDiaFim[lqNivel];
           lqHoraDireita := lqHoraFim[lqNivel];
+          if lqBarraDesfecho[lqNivel] >= 0 then
+          begin
+            lqDiaDireita := lqDiaDesfecho[lqNivel];
+            lqHoraDireita := lqHoraDesfecho[lqNivel];
+          end;
           if not MostrarLinhaCaptura then
           begin
-            lqDiaInicio := lqDiaFim[lqNivel];
-            lqHoraInicio := lqHoraFim[lqNivel];
+            lqDiaInicio := lqDiaDireita;
+            lqHoraInicio := lqHoraDireita;
             lqDiaDireita := lqDiaPublicacao[lqNivel];
             lqHoraDireita := lqHoraPublicacao[lqNivel];
+            if lqBarraDesfecho[lqNivel] >= 0 then
+            begin
+              lqDiaDireita := lqDiaPublicacaoDesfecho[lqNivel];
+              lqHoraDireita := lqHoraPublicacaoDesfecho[lqNivel];
+            end;
+          end
+          else if lqDesfecho[lqNivel] = LQAguardaRecuperacao then
+          begin
+            lqEstilo := 1;
+            lqDiaDireita := smcDataConfirmada;
+            lqHoraDireita := smcHoraConfirmada;
           end;
         end;
         if lqPosVisual = 1 then

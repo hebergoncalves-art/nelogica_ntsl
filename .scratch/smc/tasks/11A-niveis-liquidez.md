@@ -1,6 +1,6 @@
 # 11A — Níveis de liquidez e Liquidity Grab
 
-Status: ready-for-human
+Status: aceita
 
 Depende do aceite da [10C](10C-modelos-idm.md) e cobre a [seção D1](../SPEC_evolucao.md#d1-níveis-e-lg-11a).
 
@@ -28,7 +28,7 @@ Depende do aceite da [10C](10C-modelos-idm.md) e cobre a [seção D1](../SPEC_ev
 
 ## Validação no Profit Pro
 
-Compilação e Replay pendentes.
+O usuário informou em 24/11/2026 que os testes da 11A passaram e autorizou a 11B. O aceite se refere à revisão `11b5e1b` com o SHA-256 acima. Versão do Profit, ativo, período, parâmetros e resultados individuais não foram informados.
 
 1. Compilar a revisão acima e aplicar com `ModoFaixaOB=0`, `HabilitarCapturasLiquidez=True`, `MostrarCapturasLiquidez=True` e `MostrarNiveisLiquidez=True`.
 2. Em Replay, conferir toque, tomada e recuperação de BSL e SSL. Verificar que a captura só aparece na barra seguinte e que a linha termina no candle da tomada, incluindo a passagem entre sessões.

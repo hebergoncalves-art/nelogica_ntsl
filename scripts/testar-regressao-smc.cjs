@@ -23,6 +23,8 @@ const advancedFlipCommit = '8671dedac34e76d737849f3830da40b4e77e87dd';
 const advancedFlip = execFileSync('git', ['show', `${advancedFlipCommit}:${path}`], { cwd: root });
 const idmCommit = '20426dcaedbe529032950559484a2fbbea23c8e5';
 const acceptedIDMSource = execFileSync('git', ['show', `${idmCommit}:${path}`], { cwd: root });
+const liquidityCommit = '11b5e1b';
+const acceptedLiquiditySource = execFileSync('git', ['show', `${liquidityCommit}:${path}`], { cwd: root });
 const candidate = readFileSync(join(root, path));
 const sha = (data) => createHash('sha256').update(data).digest('hex');
 
@@ -289,6 +291,7 @@ const acceptedFlip = compile(structuralFlip);
 const acceptedPOI = compile(poiFlip);
 const acceptedAdvanced = compile(advancedFlip);
 const acceptedIDM = compile(acceptedIDMSource);
+const acceptedLiquidity = compile(acceptedLiquiditySource);
 const updated = compile(candidate);
 
 function dated(rows) {
@@ -435,7 +438,8 @@ function liquidityArchive(model) {
       sources.push(fields('lqfonte', ['tipo', 'ref', 'origem', 'ativacao', 'fim', 'tomada'], link));
     }
     return { side, ...fields('lq', ['id', 'estado', 'origemnivel', 'ticks', 'ativacao', 'fim',
-      'publicacao', 'extremotomada', 'penetracaoticks'], slot), sources };
+      'publicacao', 'extremotomada', 'penetracaoticks', 'desfecho', 'barradesfecho',
+      'publicacaodesfecho', 'extremocaptura'], slot), sources };
   }).filter(Boolean));
 }
 
@@ -673,12 +677,17 @@ const cases = {
       ['mostraridmcandidatos', false], ['filtropoiidm', 0], ['filtrofibidm', 0],
       ['filtrofvgidm', 0], ['filtrodispidm', 0], ['filtrovolumeidm', 0],
     ]);
-    assert.deepEqual(Object.entries(updated.inputs).slice(Object.keys(acceptedIDM.inputs).length), [
+    assert.deepEqual(Object.entries(updated.inputs).slice(Object.keys(acceptedIDM.inputs).length,
+      Object.keys(acceptedLiquidity.inputs).length), [
       ['habilitarcapturasliquidez', false], ['mostrarcapturasliquidez', false], ['fonteidm', true],
       ['fonteswinginterno', true], ['fonteswingexterno', true], ['mostrarbsl', true], ['mostrarssl', true],
       ['mostrarliquiditygrab', true], ['mincapturaticks', 1], ['bufferrecuperacaoticks', 0], ['minpaviograb', 0],
       ['mostrarniveisliquidez', false], ['mostrarlinhacaptura', true], ['mostrarrotulolq', true],
       ['mostrarfontelq', true], ['maxcapturaslqvisiveis', 20],
+    ]);
+    assert.deepEqual(Object.entries(updated.inputs).slice(Object.keys(acceptedLiquidity.inputs).length), [
+      ['mostrarsweep', true], ['mostrarstophunt', true], ['maxbarrasstophunt', 5], ['permitirgappadraolq', false],
+      ['mostrarrupturapendente', false], ['mostrarbreaksemrecuperacao', false],
     ]);
     for (const [name, value] of Object.entries(original.constants)) assert.equal(updated.constants[name], value, name);
     return 'hash de referência, 26 inputs e constantes legadas conferidos. Compilação PENDENTE';
@@ -2023,7 +2032,11 @@ const cases = {
         const [level] = liquidityArchive(model);
         assert.deepEqual([level.side, level.estado, level.fim, level.publicacao, level.penetracaoticks, level.sources[0].tomada],
           [side, model.get(state), 2, depth > 0 ? 3 : -1, depth, depth > 0]);
-        assert.equal(segments(trace.at(-1)).length, state === 'lqgrab' ? 1 : 0);
+        if (state === 'lqbreakstarted') {
+          assert.equal(level.desfecho, model.get('lqsweep'));
+          assert.equal(level.barradesfecho, 3);
+        }
+        assert.equal(segments(trace.at(-1)).length, ['lqgrab', 'lqbreakstarted'].includes(state) ? 1 : 0);
       }
     }
     return 'classificação física espelhada, pavio e buffer inclusivos, gap e interrupção por OHLC inválido';
@@ -2064,6 +2077,7 @@ const cases = {
     const [idmOnly] = liquidityArchive(capture.model);
     assert.deepEqual([idmOnly.ticks, idmOnly.estado, idmOnly.fim, idmOnly.sources[0].tipo, idmOnly.sources[0].tomada],
       [100, capture.model.get('lqbreakstarted'), 18, 3, true]);
+    assert.deepEqual([idmOnly.desfecho, idmOnly.barradesfecho], [capture.model.get('lqsweep'), 19]);
     const expired = idmFixture({ ...options, config: { ...config, MaxIdadeIDM: 1 } });
     const [timedOut] = liquidityArchive(expired.model);
     assert.deepEqual([timedOut.estado, timedOut.fim, timedOut.penetracaoticks, timedOut.sources[0].tomada],
@@ -2148,6 +2162,126 @@ const cases = {
     bars.forEach((_, index) => native.step(index));
     assert.ok(liquidityArchive(native).some((level) => level.estado === native.get('lqgrab') && level.sources[0].tipo === 1));
     return 'paridade com a 10C nos cinco modos e LG gerado pelo detector interno oculto a partir de OHLC';
+  },
+  R01() {
+    const rows = [[100, 110, 94, 100], [100, 109, 96, 100], [106, 112, 104, 111],
+      [111, 115, 104, 110], [105, 116, 99, 105], [100, 109, 96, 100]];
+    for (const side of [1, 2]) {
+      const mirrored = side === 1 ? rows : rows.map(([o, h, l, c]) => [200 - o, 200 - l, 200 - h, 200 - c]);
+      const result = liquidityFixture(mirrored, { 1: [fact(side, 0, side === 1 ? 110 : 90)] }, { repeat: true });
+      assert.equal(segments(result.trace[3]).length, 0);
+      const line = segments(result.trace[4]).find((draw) => draw[6] === (side === 1 ? 'SW BSL · Interno' : 'SW SSL · Interno'));
+      assert.ok(line, 'SW deve aparecer imediatamente após o primeiro retorno');
+      assert.deepEqual(line.slice(12), [result.bars[1][5], result.bars[3][5]]);
+      const [capture] = liquidityArchive(result.model);
+      assert.deepEqual([capture.fim, capture.publicacao, capture.barradesfecho, capture.publicacaodesfecho],
+        [2, 3, 3, 4]);
+      assert.deepEqual([capture.extremotomada, capture.extremocaptura],
+        side === 1 ? [112, 115] : [88, 85]);
+    }
+    return 'sweep BSL e SSL na primeira recuperação, com igualdade e publicação no candle seguinte';
+  },
+  R02() {
+    const rows = [...Array.from({ length: 13 }, () => [100, 108, 95, 100]),
+      [100, 110, 94, 100], [100, 109, 96, 100], [106, 112, 104, 111],
+      [111, 115, 104, 109], [109, 113, 104, 110], [110, 120, 104, 108], [108, 125, 100, 107], [100, 109, 96, 100]];
+    for (const side of [1, 2]) {
+      const sideName = side === 1 ? 'BSL' : 'SSL';
+      const initial = side === 1 ? rows : rows.map(([o, h, l, c]) => [200 - o, 200 - l, 200 - h, 200 - c]);
+      const events = { 14: [fact(side, 13, side === 1 ? 110 : 90)] };
+      const config = { MaxBarrasStopHunt: 3, BufferRecuperacaoTicks: 2, MostrarRupturaPendente: true, MostrarBreakSemRecuperacao: true };
+      const live = liquidityFixture(initial, events, { config, repeat: true });
+      const [capture] = liquidityArchive(live.model);
+      assert.deepEqual([capture.desfecho, capture.fim, capture.barradesfecho, capture.publicacaodesfecho],
+        [live.model.get('lqstophunt'), 15, 18, 19]);
+      assert.equal(capture.extremocaptura, side === 1 ? 120 : 80);
+      const pending = segments(live.trace[18])[0];
+      assert.ok(pending[6].startsWith('Ruptura pendente ' + sideName));
+      assert.deepEqual([pending[4], pending[13]], [live.bars[17][4], live.bars[17][5]]);
+      const final = segments(live.trace[19])[0];
+      assert.match(final[6], /^SH /);
+      assert.deepEqual([final[3], final[4], ...final.slice(12)], [live.bars[14][4], live.bars[18][4], live.bars[14][5], live.bars[18][5]]);
+      const reload = liquidityFixture(initial, events, { config: { ...config, MostrarLinhaCaptura: false }, historical: true });
+      assert.deepEqual(liquidityArchive(reload.model), [capture]);
+      assert.deepEqual(segments(reload.trace.at(-1))[0].slice(12), [live.bars[18][5], live.bars[19][5]]);
+      const hidden = liquidityFixture(initial, events, { config: { ...config, MostrarStopHunt: false } });
+      assert.deepEqual(liquidityArchive(hidden.model), [capture]);
+      assert.equal(segments(hidden.trace.at(-1)).length, 0);
+      const expired = liquidityFixture(initial, events, { config: { ...config, MaxBarrasStopHunt: 2 } });
+      const [noReturn] = liquidityArchive(expired.model);
+      assert.deepEqual([noReturn.desfecho, noReturn.barradesfecho, noReturn.publicacaodesfecho],
+        [expired.model.get('lqbreaksemrecuperacao'), 17, 18]);
+      assert.match(segments(expired.trace.at(-1))[0][6], /^Break sem recuperação /);
+      assert.equal(segments(expired.trace.at(-1))[0][13], expired.bars[17][5]);
+    }
+    return 'Stop Hunt no prazo inclusivo, banda intermediária, extremo na recuperação e expiração entre sessões';
+  },
+  R03() {
+    const rows = [[100, 110, 94, 100], [100, 109, 96, 100], [112, 115, 111, 113],
+      [113, 116, 105, 108], [106, 109, 96, 100], [100, 109, 96, 100]];
+    for (const side of [1, 2]) {
+      const mirror = (series) => side === 1 ? series : series.map(([o, h, l, c]) => [200 - o, 200 - l, 200 - h, 200 - c]);
+      const events = { 1: [fact(side, 0, side === 1 ? 110 : 90)] };
+      const off = liquidityFixture(mirror(rows), events);
+      const [gap] = liquidityArchive(off.model);
+      assert.deepEqual([gap.estado, gap.desfecho, gap.fim], [off.model.get('lqgaptaken'), 0, 2]);
+      assert.equal(segments(off.trace.at(-1)).length, 0);
+      const config = { PermitirGapPadraoLQ: true, MinPavioGrab: 1 };
+      const on = liquidityFixture(mirror(rows), events, { config });
+      const [included] = liquidityArchive(on.model);
+      assert.deepEqual([included.estado, included.desfecho], [on.model.get('lqgaptaken'), on.model.get('lqsweep')]);
+      const insufficient = liquidityFixture(mirror(rows), events, { config: { ...config, MinCapturaTicks: 6 } });
+      assert.equal(liquidityArchive(insufficient.model)[0].desfecho, 0);
+      const data = liquidityFixture(mirror([...rows.slice(0, 3), [110, 107, 100, 108], ...rows.slice(4)]), events, { config });
+      const [invalid] = liquidityArchive(data.model);
+      assert.deepEqual([invalid.estado, invalid.desfecho, invalid.fim, invalid.barradesfecho,
+        invalid.extremocaptura], [data.model.get('lqgaptaken'), data.model.get('lqdadosinvalidos'), 2, 3, side === 1 ? 115 : 85]);
+      assert.equal(segments(data.trace.at(-1)).length, 0);
+    }
+    return 'gap preservado, permissão e mínimo independentes e OHLC inválido encerra a espera';
+  },
+  R04() {
+    const rows = [[100, 110, 90, 100], [100, 109, 91, 100], [108, 114, 96, 112],
+      [102, 114, 86, 88], [88, 103, 83, 84], [88, 118, 84, 115], [111, 116, 97, 105]];
+    const result = liquidityFixture(rows, { 1: [fact(1, 0, 110), fact(2, 0, 90)] },
+      { config: { BufferRecuperacaoTicks: 25, MostrarRupturaPendente: true }, repeat: true });
+    assert.deepEqual(segments(result.trace[4]).map((line) => line[6]),
+      ['Ruptura pendente SSL · Interno', 'Ruptura pendente BSL · Interno']);
+    assert.deepEqual(liquidityArchive(result.model).map((level) => [level.fim, level.barradesfecho, level.desfecho]),
+      [[2, 4, result.model.get('lqstophunt')], [3, 5, result.model.get('lqstophunt')]]);
+    assert.deepEqual(segments(result.trace.at(-1)).map((line) => line[6]), ['SH SSL · Interno', 'SH BSL · Interno']);
+    return 'esperas simultâneas BSL e SSL e ordenação por fechamento da recuperação';
+  },
+  R05() {
+    const rows = Array.from({ length: 107 }, (_, index) => [100, 1100 - index, 90, 100]);
+    rows.splice(99, 8, [100, 900, 90, 100], [100, 899, 90, 100], [900, 905, 900, 902],
+      [902, 910, 901, 905], [905, 909, 900, 905], [905, 909, 894, 895],
+      [895, 908, 893, 896], [896, 908, 893, 897]);
+    const events = Object.fromEntries(Array.from({ length: 100 }, (_, index) => [index + 1, [fact(1, index, rows[index][1])]]));
+    events[103] = [fact(1, 102, 910)];
+    events[105] = [fact(1, 104, 909)];
+    const { model, trace } = liquidityFixture(rows, events, { config: { MostrarRupturaPendente: true } });
+    assert.equal(model.element('lqbarradiagnostico', 1), 103);
+    assert.equal(model.element('lqdiagnostico', 1), model.get('smccapacityfull'));
+    assert.match(segments(trace[104])[0][6], /^Ruptura pendente /);
+    assert.match(segments(trace[105])[0][6], /^SH /);
+    const archive = liquidityArchive(model);
+    assert.equal(archive.length, 100);
+    assert.deepEqual(archive.filter((level) => level.id > 99).map((level) => [level.id, level.ticks, level.ativacao]), [[101, 909, 105]]);
+    return 'capacidade preserva esperas e permite reciclagem depois do encerramento';
+  },
+  R06() {
+    assert.equal(sha(acceptedLiquiditySource), '7b885e3c948ebf4abe58346b916abe77daa7599d1ad2620f53bff6f1fe253ed3');
+    const bars = prices.slice(0, 430);
+    for (const ModoFaixaOB of [0, 1, 2, 3, 4]) {
+      const config = { PeriodoSwing: 10, ModoFaixaOB, MostrarPivos: true, MostrarFVG: true,
+        HabilitarFlip: true, MostrarFlip: true, HabilitarIDM: true, MostrarIDM: true, ModoIDM: 3,
+        HabilitarCapturasLiquidez: false, MostrarCapturasLiquidez: true, MostrarNiveisLiquidez: true };
+      const previous = runtime(acceptedLiquidity, bars, config);
+      const current = runtime(updated, bars, config);
+      bars.forEach((_, index) => assert.deepEqual(current.step(index), previous.step(index)));
+    }
+    return 'paridade com a revisão aceita da 11A nos cinco modos com liquidez desligada';
   },
   I07() {
     const options = { length: 21, envelope: { 18: [106, 110, 99, 108] } };
