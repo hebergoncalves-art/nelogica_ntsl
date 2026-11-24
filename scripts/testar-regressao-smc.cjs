@@ -21,6 +21,8 @@ const poiCommit = '938ebaa';
 const poiFlip = execFileSync('git', ['show', `${poiCommit}:${path}`], { cwd: root });
 const advancedFlipCommit = '8671dedac34e76d737849f3830da40b4e77e87dd';
 const advancedFlip = execFileSync('git', ['show', `${advancedFlipCommit}:${path}`], { cwd: root });
+const idmCommit = '20426dcaedbe529032950559484a2fbbea23c8e5';
+const acceptedIDMSource = execFileSync('git', ['show', `${idmCommit}:${path}`], { cwd: root });
 const candidate = readFileSync(join(root, path));
 const sha = (data) => createHash('sha256').update(data).digest('hex');
 
@@ -286,6 +288,7 @@ const accepted = compile(foundation);
 const acceptedFlip = compile(structuralFlip);
 const acceptedPOI = compile(poiFlip);
 const acceptedAdvanced = compile(advancedFlip);
+const acceptedIDM = compile(acceptedIDMSource);
 const updated = compile(candidate);
 
 function dated(rows) {
@@ -401,6 +404,39 @@ function scripted(closes, entries, overrides = {}, tick = 1) {
     model.step(index);
   });
   return model;
+}
+
+function liquidityFixture(rows, entries, { config = {}, historical = false, repeat = false,
+  program = updated, before = () => {}, tick = 1 } = {}) {
+  const bars = dated(rows);
+  const model = runtime(program, bars, { PeriodoSwing: 500, HabilitarCapturasLiquidez: true,
+    MostrarCapturasLiquidez: true, ...config }, tick);
+  const trace = bars.map((_, index) => {
+    if (index > 0 && model.get('smccalcula')) stageFacts(model, index - 1, entries[index - 1] ?? []);
+    before(model, index);
+    const last = !historical || index === bars.length - 1;
+    const drawing = model.step(index, last);
+    if (repeat) assert.deepEqual(model.step(index, last), drawing);
+    return drawing;
+  });
+  return { bars, model, trace };
+}
+
+function liquidityArchive(model) {
+  return [1, 2].flatMap((side) => Array.from({ length: model.element('lqtotalniveis', side) }, (_, index) => {
+    const slot = (side - 1) * 100 + index;
+    const state = model.element('lqestado', slot);
+    if (!state) return null;
+    const fields = (prefix, names, position) => Object.fromEntries(names.map((name) =>
+      [name, model.element(prefix + name, position)]));
+    const sources = [];
+    for (let link = model.element('lqprimeirafonte', slot); link >= 0; link = model.element('lqfonteproxima', link)) {
+      assert.ok(sources.length < 600, 'capacidade ou ciclo de fontes');
+      sources.push(fields('lqfonte', ['tipo', 'ref', 'origem', 'ativacao', 'fim', 'tomada'], link));
+    }
+    return { side, ...fields('lq', ['id', 'estado', 'origemnivel', 'ticks', 'ativacao', 'fim',
+      'publicacao', 'extremotomada', 'penetracaoticks'], slot), sources };
+  }).filter(Boolean));
 }
 
 const prices = generated(850);
@@ -626,7 +662,7 @@ const cases = {
     ]);
     assert.equal(sha(advancedFlip), 'be082bb10c7ba9be248710e194e15e07b987af03a160a166829ba64a7e72b415');
     assert.deepEqual(Object.entries(updated.inputs).slice(0, 81), Object.entries(acceptedAdvanced.inputs));
-    assert.deepEqual(Object.entries(updated.inputs).slice(81), [
+    assert.deepEqual(Object.entries(updated.inputs).slice(81, Object.keys(acceptedIDM.inputs).length), [
       ['habilitaridm', false], ['mostraridm', false], ['modoidm', 0], ['minpullbackidmatr', 0.5],
       ['minreacaoidmatr', 0.5], ['mindistprotegidoticks', 2], ['maxbuscapullback', 100],
       ['politicanovobos', 0], ['mostraridmlow', true], ['mostraridmhigh', true],
@@ -636,6 +672,13 @@ const cases = {
       ['mostraridmconfirmacao', true], ['mostrarprecoidm', true], ['maxidmsvisiveis', 10],
       ['mostraridmcandidatos', false], ['filtropoiidm', 0], ['filtrofibidm', 0],
       ['filtrofvgidm', 0], ['filtrodispidm', 0], ['filtrovolumeidm', 0],
+    ]);
+    assert.deepEqual(Object.entries(updated.inputs).slice(Object.keys(acceptedIDM.inputs).length), [
+      ['habilitarcapturasliquidez', false], ['mostrarcapturasliquidez', false], ['fonteidm', true],
+      ['fonteswinginterno', true], ['fonteswingexterno', true], ['mostrarbsl', true], ['mostrarssl', true],
+      ['mostrarliquiditygrab', true], ['mincapturaticks', 1], ['bufferrecuperacaoticks', 0], ['minpaviograb', 0],
+      ['mostrarniveisliquidez', false], ['mostrarlinhacaptura', true], ['mostrarrotulolq', true],
+      ['mostrarfontelq', true], ['maxcapturaslqvisiveis', 20],
     ]);
     for (const [name, value] of Object.entries(original.constants)) assert.equal(updated.constants[name], value, name);
     return 'hash de referência, 26 inputs e constantes legadas conferidos. Compilação PENDENTE';
@@ -1948,6 +1991,163 @@ const cases = {
       assert.deepEqual(idmModelArchive(all.model, 0, side), idmModelArchive(structural.model, 0, side));
     }
     return 'desempate do sweep, recarga, visibilidade e paridade de STRUCTURAL em ALL';
+  },
+  L01() {
+    const rows = [
+      [100, 110, 90, 100], [100, 109, 91, 100], [101, 110, 90, 100],
+      [104, 112, 103, 110], [95, 103, 87, 90], [100, 104, 95, 99],
+    ];
+    const { bars, trace } = liquidityFixture(rows, { 1: [fact(1, 0, 110), fact(2, 0, 90)] }, { repeat: true });
+    assert.equal(segments(trace[3]).length, 0);
+    const buySide = segments(trace[4]).find((line) => line[6] === 'LG BSL · Interno');
+    const sellSide = segments(trace[5]).find((line) => line[6] === 'LG SSL · Interno');
+    assert.deepEqual([buySide[1], ...buySide.slice(12)], [110, bars[1][5], bars[3][5]]);
+    assert.deepEqual([sellSide[1], ...sellSide.slice(12)], [90, bars[1][5], bars[4][5]]);
+    return 'LG BSL e SSL após toque exato e recuperação no fechamento, com âncoras causais';
+  },
+  L02() {
+    const scenarios = [
+      ['lqsmalltake', [105, 111, 98, 109], { MinCapturaTicks: 2 }, 1],
+      ['lqbreakstarted', [106, 112, 104, 111], {}, 2],
+      ['lqrecuperacaoinsuficiente', [105, 112, 100, 109], { BufferRecuperacaoTicks: 2 }, 2],
+      ['lqpavioinsuficiente', [109, 112, 100, 110], { MinPavioGrab: 0.25 }, 2],
+      ['lqgrab', [108, 112, 104, 108], { MinCapturaTicks: 2, BufferRecuperacaoTicks: 2, MinPavioGrab: 0.5 }, 2],
+      ['lqgaptaken', [111, 115, 111, 112], {}, 5],
+      ['lqdadosinvalidos', [100, 109, 102, 110], {}, 0],
+    ];
+    for (const side of [1, 2]) {
+      for (const [state, bar, config, depth] of scenarios) {
+        const rows = [[100, 110, 94, 100], [100, 110, 96, 100], bar, [108, 115, 100, 107], [100, 105, 96, 100]];
+        const mirrored = side === 1 ? rows : rows.map(([o, h, l, c]) => [200 - o, 200 - l, 200 - h, 200 - c]);
+        const { model, trace } = liquidityFixture(mirrored, { 1: [fact(side, 0, side === 1 ? 110 : 90)] }, { config });
+        const [level] = liquidityArchive(model);
+        assert.deepEqual([level.side, level.estado, level.fim, level.publicacao, level.penetracaoticks, level.sources[0].tomada],
+          [side, model.get(state), 2, depth > 0 ? 3 : -1, depth, depth > 0]);
+        assert.equal(segments(trace.at(-1)).length, state === 'lqgrab' ? 1 : 0);
+      }
+    }
+    return 'classificação física espelhada, pavio e buffer inclusivos, gap e interrupção por OHLC inválido';
+  },
+  L03() {
+    const rows = [[100, 110, 90, 100], [100, 110, 90, 100], [100, 109, 91, 100], [100, 109, 91, 100],
+      [100, 112, 88, 100], [100, 110, 94, 100], [100, 109, 94, 100], [100, 114, 95, 100], [100, 107, 94, 100]];
+    const events = {
+      1: [fact(1, 0, 110), fact(2, 0, 90), fact(3, 0, 110)], 3: [fact(3, 2, 109)],
+      5: [fact(1, 0, 110)], 6: [fact(1, 5, 110)],
+    };
+    const live = liquidityFixture(rows, events, { repeat: true });
+    const result = liquidityArchive(live.model);
+    assert.deepEqual(result.map((level) => [level.ticks, level.origemnivel, level.ativacao, level.fim,
+      level.sources.map((source) => source.tipo)]), [[110, 0, 1, 4, [2, 1]], [109, 2, 3, 4, [2]],
+      [110, 5, 6, 7, [1]], [90, 0, 1, 4, [1]]]);
+    assert.ok(result.every((level) => level.estado === live.model.get('lqgrab')));
+    assert.equal(new Set(result.map((level) => level.id)).size, 4);
+    assert.equal(segments(live.trace[5]).length, 3);
+    assert.ok(segments(live.trace[5]).some((line) => line[6] === 'LG BSL · Interno · Swing'));
+    assert.deepEqual(liquidityArchive(liquidityFixture(rows, events, { historical: true }).model), result);
+    const hidden = liquidityFixture(rows, events, { config: { MostrarCapturasLiquidez: false, MostrarBSL: false } });
+    assert.deepEqual(liquidityArchive(hidden.model), result);
+    assert.equal(segments(hidden.trace.at(-1)).length, 0);
+    const externalOnly = liquidityFixture(rows, events, { config: { FonteSwingInterno: false } });
+    assert.deepEqual(liquidityArchive(externalOnly.model).map((level) => [level.ticks, level.sources[0].tipo]), [[110, 2], [109, 2]]);
+    const atConfirmation = liquidityFixture([rows[0], [100, 111, 92, 100], ...rows.slice(2)],
+      { 1: [fact(1, 0, 110)] });
+    assert.deepEqual(liquidityArchive(atConfirmation.model), []);
+    assert.equal(atConfirmation.model.element('lqdiagnostico', 1), atConfirmation.model.get('lqfonteconsumida'));
+    return 'dupla captura, preços adjacentes, coexistência das escalas, rejeição de origem consumida e nova geração';
+  },
+  L04() {
+    const config = { HabilitarCapturasLiquidez: true, MostrarCapturasLiquidez: true,
+      FonteSwingInterno: false, FonteSwingExterno: false };
+    const options = { length: 22, config, envelope: { 18: [106, 110, 88, 89] } };
+    const capture = idmFixture(options);
+    const [idmOnly] = liquidityArchive(capture.model);
+    assert.deepEqual([idmOnly.ticks, idmOnly.estado, idmOnly.fim, idmOnly.sources[0].tipo, idmOnly.sources[0].tomada],
+      [100, capture.model.get('lqbreakstarted'), 18, 3, true]);
+    const expired = idmFixture({ ...options, config: { ...config, MaxIdadeIDM: 1 } });
+    const [timedOut] = liquidityArchive(expired.model);
+    assert.deepEqual([timedOut.estado, timedOut.fim, timedOut.penetracaoticks, timedOut.sources[0].tomada],
+      [expired.model.get('lqsemfonte'), 18, 0, false]);
+    const aliased = idmFixture({ ...options, config: { ...config, FonteSwingInterno: true, MaxIdadeIDM: 1 },
+      envelope: { 18: [106, 110, 98, 105] } });
+    const retained = liquidityArchive(aliased.model).find((level) => level.ticks === 100);
+    assert.equal(retained.estado, aliased.model.get('lqgrab'));
+    assert.deepEqual(retained.sources.map(({ tipo, tomada }) => [tipo, tomada]), [[3, false], [1, true]]);
+    const post = idmFixture({ ...idmPostOptions(), config: { ...config, ModoIDM: 2 } });
+    assert.deepEqual(liquidityArchive(post.model).map((level) => [level.ticks, level.estado, level.fim]),
+      [[105, post.model.get('lqgrab'), 23]]);
+    const local = idmLocalFixture(-1, { config });
+    assert.equal(liquidityArchive(local.model).length, 0);
+    const disabled = idmFixture({ ...options, config: { ...config, HabilitarIDM: false } });
+    assert.equal(liquidityArchive(disabled.model).length, 0);
+    return 'IDM estrutural e POST_BOS, validade individual, ausência de FLIP_LOCAL e captura antes da perda de contexto';
+  },
+  L05() {
+    const rows = Array.from({ length: 106 }, (_, index) => [100, 1000 - index, 90, 100]);
+    rows[102] = [100, 902, 90, 100];
+    const events = Object.fromEntries(Array.from({ length: 101 }, (_, index) =>
+      [index + 1, [fact(1, index, 1000 - index)]]));
+    events[104] = [fact(1, 103, 897)];
+    const { model } = liquidityFixture(rows, events);
+    const levels = liquidityArchive(model);
+    assert.equal(model.element('lqdiagnostico', 1), model.get('smccapacityfull'));
+    assert.equal(model.element('lqbarradiagnostico', 1), 101);
+    assert.equal(levels.length, 100);
+    assert.deepEqual(levels.filter((level) => level.id > 100).map((level) => [level.id, level.ticks, level.ativacao]), [[101, 897, 104]]);
+    assert.ok(levels.every((level) => level.estado === model.get('lqativo')));
+    assert.ok(levels.every((level) => level.sources.length === 1));
+    const manyBars = Array.from({ length: 605 }, () => [100, 110, 90, 100]);
+    manyBars[602] = [100, 112, 90, 100];
+    const manyAliases = Object.fromEntries(Array.from({ length: 601 }, (_, index) =>
+      [index + 1, [fact(1, index, 110)]]));
+    const packed = liquidityFixture(manyBars.slice(0, -1), manyAliases);
+    assert.equal(packed.model.element('lqbarradiagnostico', 1), 601);
+    const [packedLevel] = liquidityArchive(packed.model);
+    assert.equal(packedLevel.sources.length, 600);
+    assert.ok(packedLevel.sources.every((source) => source.tomada));
+    const reused = liquidityFixture(manyBars, { ...manyAliases, 603: [fact(1, 602, 112)] });
+    const [newLevel] = liquidityArchive(reused.model);
+    assert.deepEqual([newLevel.id, newLevel.ticks, newLevel.sources.length], [2, 112, 1]);
+    assert.equal(reused.model.element('lqtotalfontes', 1), 600);
+    return '100 gerações e 600 vínculos por lado, rejeição em capacidade e reciclagem do terminal';
+  },
+  L06() {
+    const rows = Array.from({ length: 30 }, (_, index) => [100, 160 - index, 90, 100]);
+    rows[26] = [100, 166, 90, 100];
+    const events = Object.fromEntries(Array.from({ length: 25 }, (_, index) =>
+      [index + 1, [fact(1, index, 160 - index)]]));
+    const live = liquidityFixture(rows, events, { config: { MostrarNiveisLiquidez: true } });
+    const levels = liquidityArchive(live.model);
+    assert.equal(levels.length, 25);
+    assert.equal(segments(live.trace[26]).length, 20);
+    assert.equal(segments(live.trace[27]).length, 20);
+    assert.equal(segments(live.trace[27])[0][1], 136);
+    const labelOnly = liquidityFixture(rows, events, { config: { MostrarLinhaCaptura: false,
+      MostrarFonteLQ: false, MaxCapturasLQVisiveis: 2 } });
+    const labels = segments(labelOnly.trace.at(-1));
+    assert.deepEqual(labels.map((draw) => [draw[1], draw[6]]), [[136, 'LG BSL'], [137, 'LG BSL']]);
+    assert.deepEqual(labels[0].slice(12), [labelOnly.bars[26][5], labelOnly.bars[27][5]]);
+    const lineOnly = liquidityFixture(rows, events, { historical: true, config: { MostrarRotuloLQ: false } });
+    assert.ok(segments(lineOnly.trace.at(-1)).every((draw) => draw[6] === ''));
+    assert.deepEqual(liquidityArchive(lineOnly.model), levels);
+    return 'limites visuais independentes, ordenação estável, marcador curto e linha sem rótulo';
+  },
+  L07() {
+    assert.equal(sha(acceptedIDMSource), '66948ea8cd7091e03cd24da5c98830afca6b66d853643baa086cd047c4051e19');
+    const bars = prices.slice(0, 430);
+    for (const ModoFaixaOB of [0, 1, 2, 3, 4]) {
+      const config = { PeriodoSwing: 10, ModoFaixaOB, MostrarPivos: true, MostrarFVG: true,
+        HabilitarFlip: true, MostrarFlip: true, HabilitarIDM: true, MostrarIDM: true, ModoIDM: 3,
+        HabilitarCapturasLiquidez: false, MostrarCapturasLiquidez: true, MostrarNiveisLiquidez: true };
+      const old = runtime(acceptedIDM, bars, config);
+      const current = runtime(updated, bars, config);
+      bars.forEach((_, index) => assert.deepEqual(current.step(index), old.step(index)));
+    }
+    const native = runtime(updated, bars, { PeriodoSwing: 10, HabilitarCapturasLiquidez: true,
+      FonteSwingExterno: false, MostrarEstruturaInterna: false });
+    bars.forEach((_, index) => native.step(index));
+    assert.ok(liquidityArchive(native).some((level) => level.estado === native.get('lqgrab') && level.sources[0].tipo === 1));
+    return 'paridade com a 10C nos cinco modos e LG gerado pelo detector interno oculto a partir de OHLC';
   },
   I07() {
     const options = { length: 21, envelope: { 18: [106, 110, 99, 108] } };
