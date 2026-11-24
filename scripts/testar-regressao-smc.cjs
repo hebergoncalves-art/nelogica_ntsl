@@ -165,6 +165,10 @@ function compile(source) {
       const direction = take();
       assert.ok(['to', 'downto'].includes(direction));
       const last = expr();
+      // Min and Max return Float in NTSL even when both arguments are integers.
+      for (const bound of [first, last]) {
+        assert.doesNotMatch(bound, /^m\.call\("(min|max)",/, `Limite de FOR deve ser Integer (${name})`);
+      }
       want('do');
       const body = statement();
       const id = loops++;
@@ -252,6 +256,7 @@ function runtime(program, bars, overrides = {}, tick = 1) {
       if (name === 'max') return Math.max(...args);
       if (name === 'min') return Math.min(...args);
       if (name === 'round') return Math.sign(args[0]) * Math.round(Math.abs(args[0]));
+      if (name === 'floattostring') return args[0].toFixed(args[1]);
       if (name === 'calcdate') return calcDate(...args);
       if (name === 'rgb') return args[0] + 256 * args[1] + 65536 * args[2];
       if (name === 'highest' || name === 'lowest') {
@@ -507,7 +512,7 @@ function idmFixture({ side = 1, events = {}, envelope = {}, length = 18, config 
   const facts = { ...idmFacts, ...events };
   const defaultRows = { 10: [105, 111, 100, 106], 15: [115, 119, 105, 117], 16: [117, 123, 104, 121] };
   const rows = Array.from({ length }, (_, bar) => envelope[bar] ?? defaultRows[bar] ?? [106, 112, 101, 108]);
-  const bars = dated(side === 1 ? rows : rows.map(([o, h, l, c]) => [220 - o, 220 - l, 220 - h, 220 - c]));
+  const bars = dated(side === 1 ? rows : rows.map(([o, h, l, c, volume]) => [220 - o, 220 - l, 220 - h, 220 - c, volume]));
   const model = runtime(program, bars, { PeriodoSwing: 500, PeriodoATRSMC: 3, HabilitarIDM: true, MostrarIDM: true, ...config });
   const label = side === 1 ? 'IDM LOW' : 'IDM HIGH';
   const trace = [];
@@ -521,7 +526,7 @@ function idmFixture({ side = 1, events = {}, envelope = {}, length = 18, config 
     trace.push(model.step(index, last));
     if (repeat) assert.deepEqual(model.step(index, last), trace.at(-1));
   }
-  return { model, trace, bars, label, lines: trace.map((calls) => segments(calls).filter((line) => line[6] === label)) };
+  return { model, trace, bars, label, lines: trace.map((calls) => segments(calls).filter((line) => line[6].startsWith(label))) };
 }
 
 function idmArchive(model, side = 1) {
@@ -530,6 +535,48 @@ function idmArchive(model, side = 1) {
     Object.fromEntries(['id', 'estado', 'origem', 'pivo', 'nivelticks', 'protecaoorigem', 'protecaoref',
       'bosref', 'alvoref', 'ativacao', 'publicacao', 'fim', 'atr',
     ].map((field) => [field, model.element('idm' + field, (lane - 1) * 100 + offset)])));
+}
+
+function idmModelArchive(model, kind, side) {
+  const lane = kind * 2 + (side === 1 ? 1 : 2);
+  return Array.from({ length: model.element('idmusados', lane) }, (_, offset) =>
+    Object.fromEntries(['id', 'origem', 'pivo', 'nivelticks', 'bosref', 'ativacao', 'publicacao',
+      'fim', 'estado', 'resultado', 'barraresultado', 'flipref', 'evidencias',
+    ].map((field) => [field, model.element('idm' + field, (lane - 1) * 100 + offset)])));
+}
+
+function idmPostOptions() {
+  return {
+    length: 26,
+    events: { 18: [[1, 17, 122]], 20: [[2, 19, 105]], 22: [[1, 21, 125]] },
+    envelope: { 17: [116, 122, 109, 116], 18: [116, 119, 110, 114], 19: [114, 118, 105, 109],
+      20: [109, 118, 106, 114], 21: [114, 125, 108, 117], 22: [117, 125, 107, 118],
+      23: [116, 120, 104, 111], 24: [111, 120, 107, 111] },
+  };
+}
+
+function idmLocalFixture(side, { config = {}, firstSweep = 15, confirmPivot = 14, lower = {}, before = () => {}, ...options } = {}) {
+  const closes = [...flipCloses.slice(0, 15), 105, 99, 96, 99];
+  const envelope = { 13: [109, 112, 107, 110], 14: [110, 111, 105, 108],
+    15: [109, firstSweep === 15 ? 113 : 112, 103, 105],
+    16: [108, firstSweep === 16 ? 113 : 110, 95, 99], 17: [99, 100, 95, 96], ...lower };
+  const price = (value) => side === -1 ? value : 200 - value;
+  const lane = (base) => side === -1 ? base : base % 2 === 0 ? base - 1 : base + 1;
+  return flipFixture(1, side, {
+    closes, envelope, ...options,
+    config: { HabilitarFlip: false, HabilitarIDM: true, MostrarIDM: true, ModoIDM: 1,
+      ModoConfirmacaoIDM: 1, ...config },
+    before(model, index, flipLane) {
+      const closed = index - 1;
+      if (closed === 14 || closed === confirmPivot) {
+        const facts = [];
+        if (closed === 14) facts.push(fact(lane(3), 13, price(112)));
+        if (closed === confirmPivot) facts.push(fact(lane(1), 13, price(112)));
+        stageFacts(model, closed, facts);
+      }
+      before(model, index, flipLane);
+    },
+  });
 }
 
 function idmSecondBOS(level = 110) {
@@ -583,6 +630,12 @@ const cases = {
       ['habilitaridm', false], ['mostraridm', false], ['modoidm', 0], ['minpullbackidmatr', 0.5],
       ['minreacaoidmatr', 0.5], ['mindistprotegidoticks', 2], ['maxbuscapullback', 100],
       ['politicanovobos', 0], ['mostraridmlow', true], ['mostraridmhigh', true],
+      ['sweepidmticks', 1], ['maxidadeidm', 100], ['modoconfirmacaoidm', 2],
+      ['reacaoposidmatr', 0.5], ['maxbarrasconfirmacaoidm', 30], ['mostraridmcapturados', true],
+      ['mostraridmrompidos', true], ['mostraridmexpirados', false],
+      ['mostraridmconfirmacao', true], ['mostrarprecoidm', true], ['maxidmsvisiveis', 10],
+      ['mostraridmcandidatos', false], ['filtropoiidm', 0], ['filtrofibidm', 0],
+      ['filtrofvgidm', 0], ['filtrodispidm', 0], ['filtrovolumeidm', 0],
     ]);
     for (const [name, value] of Object.entries(original.constants)) assert.equal(updated.constants[name], value, name);
     return 'hash de referência, 26 inputs e constantes legadas conferidos. Compilação PENDENTE';
@@ -1581,6 +1634,9 @@ const cases = {
       const watched = idmFixture({ ...options, repeat: true });
       const [zone] = idmArchive(watched.model, side);
       assert.deepEqual([zone.estado, zone.fim], [2, 18]);
+      const slot = side === 1 ? 0 : 100;
+      assert.equal(watched.model.element('idmprimeirotoque', slot), 17);
+      assert.equal(watched.model.element('idmpenetracaoticks', slot), 1);
       assert.deepEqual(watched.lines[18][0].slice(12), [watched.bars[16][5], watched.bars[18][5]]);
       assert.deepEqual(watched.lines[20][0].slice(12), [watched.bars[16][5], watched.bars[18][5]]);
       const second = idmSecondBOS();
@@ -1633,9 +1689,10 @@ const cases = {
           model.set('idmestado', terminal ? 2 : 1, slot);
           model.set('idmfim', terminal ? 10 - slot : -1, slot);
           model.set('idmpivo', 200 + slot, slot);
-          model.set('idmnivelticks', 60, slot);
-          model.set('idmnivel', 60, slot);
+          model.set('idmnivelticks', 96, slot);
+          model.set('idmnivel', 96, slot);
           model.set('idmativacao', 0, slot);
+          model.set('idmcontextoorigem', 1, slot);
         }
       } });
     }
@@ -1648,6 +1705,249 @@ const cases = {
     assert.deepEqual(idmArchive(recycled.model).slice(0, 2).map(({ id, estado }) => [id, estado]), [[1, 2], [101, 1]]);
     assert.equal(recycled.lines[17][0][1], 100);
     return '100 registros por lado, reciclagem do terminal mais antigo e máximo visual de 10';
+  },
+  G01() {
+    for (const side of [1, -1]) {
+      const cases = [
+        [[107, 112, 100, 106], 1],
+        [[107, 112, 99, 100], 2],
+        [[107, 112, 99, 99], 7],
+        [[107, 112, 99, 106], 8, { SweepIDMTicks: 2 }],
+        [[98, 99, 96, 97], 7],
+      ];
+      for (const [candle, state, config] of cases) {
+        const result = idmFixture({ side, length: 21, config, envelope: { 17: candle } });
+        const [level] = idmArchive(result.model, side);
+        assert.equal(level.estado, state);
+        assert.equal(level.fim, state === 1 ? -1 : 17);
+        assert.equal(result.model.element('smcfluxo', 1), side);
+      }
+    }
+    return 'toque, sweep, rompimento, tomada abaixo do mínimo e gap, sem mudar o fluxo swing';
+  },
+  G02() {
+    for (const side of [1, -1]) {
+      const second = idmSecondBOS();
+      for (const [protection, state] of [[100, 9], [105, 10]]) {
+        const result = idmFixture({
+          ...second, side, config: { PoliticaNovoBOS: 1 },
+          events: { ...second.events, 21: [[4, 20, protection]] },
+        });
+        assert.deepEqual(idmArchive(result.model, side).map(({ estado, fim }) => [estado, fim]),
+          [[state, 30], [1, -1]]);
+      }
+      const result = idmFixture({ side, length: 21, envelope: { 17: [102, 106, 88, 89] } });
+      const slot = side === 1 ? 0 : 100;
+      assert.deepEqual([result.model.element('idmestado', slot), result.model.element('idmresultado', slot),
+        result.model.element('idmbarraresultado', slot)], [7, 4, 17]);
+    }
+    const options = { length: 21, envelope: { 19: [106, 110, 98, 105] } };
+    const state = (config) => idmArchive(idmFixture({ ...options, config }).model).map(({ estado, fim }) => [estado, fim]);
+    assert.deepEqual(state({ MaxIdadeIDM: 2 }), [[12, 19]]);
+    assert.deepEqual(state({ MaxIdadeIDM: 3 }), [[2, 19]]);
+    assert.deepEqual(state({ MaxIdadeIDM: 0 }), [[2, 19]]);
+    return 'promoção, nível fora do contexto, tomada antes da falha estrutural e validade inclusiva';
+  },
+  G03() {
+    const envelope = { 17: [106, 119, 99, 106], 18: [101, 119, 100, 101], 19: [103, 110, 101, 110] };
+    const state = (result) => ['idmestado', 'idmfim', 'idmresultado', 'idmbarraresultado']
+      .map((field) => result.model.element(field, 0));
+    const reaction = { ModoConfirmacaoIDM: 1, MaxBarrasConfirmacaoIDM: 2 };
+    assert.deepEqual(state(idmFixture({ length: 19, envelope, config: reaction })), [2, 17, 1, -1]);
+    assert.deepEqual(state(idmFixture({ length: 21, envelope, config: reaction })), [2, 17, 2, 19]);
+    assert.deepEqual(state(idmFixture({ length: 21, envelope, config: { ...reaction, MaxBarrasConfirmacaoIDM: 1 } })),
+      [2, 17, 5, 18]);
+    assert.deepEqual(state(idmFixture({ length: 21, envelope, config: { ModoConfirmacaoIDM: 0 } })),
+      [2, 17, 0, -1]);
+    assert.deepEqual(state(idmFixture({ length: 21, envelope })), [2, 17, 3, 17]);
+    return 'reação após a tomada por fechamento, modos 0/1, prazo e modo 2 sem alvo disponível';
+  },
+  G04() {
+    const options = {
+      length: 25,
+      events: { 19: [[3, 18, 130]], 20: [[3, 20, 135]] },
+      envelope: { 18: [118, 130, 105, 118], 20: [107, 135, 98, 106],
+        21: [128, 132, 105, 131], 22: [131, 133, 105, 132] },
+      config: { BufferRupturaSMCTicks: 2 },
+    };
+    options.envelope[16] = [117, 124, 104, 122];
+    for (const side of [1, -1]) {
+      const live = idmFixture({ ...options, side, repeat: true });
+      const slot = side === 1 ? 0 : 100;
+      const result = (model) => ['idmestado', 'idmfim', 'idmresultado', 'idmbarraresultado',
+        'idmalvoresultadoref', 'idmalvoresultadoticks'].map((field) => model.element(field, slot));
+      assert.deepEqual(result(live.model), [2, 20, 2, 22, 19, side === 1 ? 130 : 90]);
+      const marker = (draws) => segments(draws).find((line) => line[6] === 'IDM Confirmado');
+      assert.equal(marker(live.trace[22]), undefined);
+      assert.deepEqual(marker(live.trace[23]).slice(12), [live.bars[22][5], live.bars[23][5]]);
+      const reload = idmFixture({ ...options, side, historical: true });
+      assert.deepEqual(reload.trace.at(-1), live.trace.at(-1));
+      const hidden = idmFixture({ ...options, side, config: {
+        ...options.config, MostrarIDMConfirmacao: false, MostrarPrecoIDM: false,
+      } });
+      assert.deepEqual(result(hidden.model), result(live.model));
+      assert.equal(marker(hidden.trace.at(-1)), undefined);
+      assert.equal(hidden.lines.at(-1)[0][6], hidden.label + ' Sweep');
+    }
+    const crossedOnCapture = idmFixture({ ...options, envelope: { ...options.envelope, 20: [107, 135, 98, 132] } });
+    assert.equal(crossedOnCapture.model.element('idmresultado', 0), 3);
+    assert.equal(crossedOnCapture.model.element('idmbarraresultado', 0), 20);
+    return 'alvo congelado antes da tomada, buffer posterior, publicação e recarga espelhadas';
+  },
+  G05() {
+    const second = idmSecondBOS();
+    const options = { ...second, length: 34,
+      envelope: { ...second.envelope, 31: [108, 116, 99, 105] },
+      config: { PoliticaNovoBOS: 1, ModoConfirmacaoIDM: 0 } };
+    const baseline = idmFixture(options);
+    assert.deepEqual(idmArchive(baseline.model).map(({ estado, fim }) => [estado, fim]), [[2, 31], [7, 31]]);
+    const withDisplay = (display) => idmFixture({ ...options, config: { ...options.config, ...display } });
+    for (const [display, expected] of [
+      [{ MostrarIDMCapturados: false }, [110]], [{ MostrarIDMRompidos: false }, [100]],
+      [{ MaxIDMsVisiveis: 1 }, [110]], [{ MaxIDMsVisiveis: 0 }, []],
+    ]) {
+      const result = withDisplay(display);
+      assert.deepEqual(idmArchive(result.model), idmArchive(baseline.model));
+      assert.deepEqual(result.lines.at(-1).map((line) => line[1]), expected);
+    }
+    const expired = idmFixture({ length: 21, config: { MaxIdadeIDM: 1, MostrarIDMExpirados: true } });
+    assert.match(expired.lines.at(-1)[0][6], /Expirado/);
+    const invalid = idmFixture({ length: 20, envelope: { 17: [106, 105, 98, 106] } });
+    assert.equal(idmArchive(invalid.model)[0].estado, 1);
+    const lost = idmFixture({ length: 21, config: { ModoConfirmacaoIDM: 1 },
+      envelope: { 17: [105, 110, 99, 101], 18: [98, 100, 87, 89] } });
+    assert.equal(lost.model.element('idmresultado', 0), 4);
+    assert.equal(lost.model.element('idmbarraresultado', 0), 18);
+    return 'dois níveis no mesmo candle, controles visuais, OHLC inválido e perda de contexto posterior';
+  },
+  J01() {
+    for (const side of [1, -1]) {
+      const options = idmPostOptions();
+      const post = idmFixture({ ...options, side, repeat: true, config: { ModoIDM: 2, MostrarIDMCandidatos: true } });
+      const [level] = idmModelArchive(post.model, 2, side);
+      assert.deepEqual([level.origem, level.pivo, level.bosref, level.ativacao, level.publicacao, level.estado, level.fim],
+        [19, 20, 16, 22, 23, 2, 23]);
+      assert.ok(post.lines[21].some((line) => line[6].includes('POST_BOS Candidato')));
+      assert.ok(post.lines[23].some((line) => line[6].includes('POST_BOS')));
+      assert.ok(post.lines[23].every((line) => !line[6].includes('Candidato')));
+      assert.equal(idmModelArchive(post.model, 0, side).length, 0);
+      const all = idmFixture({ ...options, side, config: { ModoIDM: 3 } });
+      assert.deepEqual(idmModelArchive(all.model, 2, side), idmModelArchive(post.model, 2, side));
+      const interrupted = idmFixture({
+        ...options, side, config: { ModoIDM: 2 },
+        events: { ...options.events, 19: [[3, 18, 130]], 22: [...options.events[22], [7, 18, 130, 1]] },
+        envelope: { ...options.envelope, 22: [119, 133, 109, 132] },
+      });
+      assert.equal(idmModelArchive(interrupted.model, 2, side).length, 0);
+      const preTaken = idmFixture({ ...options, side, config: { ModoIDM: 2 },
+        envelope: { ...options.envelope, 21: [114, 125, 104, 117] } });
+      assert.equal(idmModelArchive(preTaken.model, 2, side).length, 0);
+    }
+    return 'POST_BOS espelhado, candidato visual, primeiro pullback, ativação e interrupção causal';
+  },
+  J02() {
+    for (const side of [1, -1]) {
+      const fixture = idmLocalFixture(side, { repeat: true });
+      const [level] = idmModelArchive(fixture.model, 1, side);
+      assert.deepEqual([level.origem, level.pivo, level.fim, level.flipref, level.ativacao, level.publicacao, level.resultado,
+        level.barraresultado], [13, 14, 15, 16, 16, 17, 2, 17]);
+      const draws = (bar) => segments(fixture.trace[bar]).filter((line) => line[6].includes('FLIP_LOCAL'));
+      assert.equal(draws(16).length, 0);
+      assert.deepEqual(draws(17)[0].slice(12), [fixture.bars[16][5], fixture.bars[17][5]]);
+      assert.ok(fixture.trace.flat().every((call) => !/^FLIP[+-]/.test(call[6] ?? '')));
+      const all = idmLocalFixture(side, { config: { ModoIDM: 3 }, historical: true });
+      assert.deepEqual(idmModelArchive(all.model, 1, side), idmModelArchive(fixture.model, 1, side));
+      const duringBreak = idmLocalFixture(side, { firstSweep: 16 });
+      assert.equal(idmModelArchive(duringBreak.model, 1, side)[0].fim, 16);
+      const late = idmLocalFixture(side, { confirmPivot: 15 });
+      assert.equal(idmModelArchive(late.model, 1, side).length, 0);
+      const rejected = idmLocalFixture(side, { config: { FiltroVolumeFlip: 2 } });
+      assert.equal(idmModelArchive(rejected.model, 1, side).length, 0);
+    }
+    return 'FLIP_LOCAL em ambos os lados, sweep antes ou em B, dependência oculta e associação sem retroatividade';
+  },
+  J03() {
+    for (const side of [1, -1]) {
+      const config = { FiltroFVGFlip: 2, FiltroAutomaticoFVG: false, MostrarFVG: false,
+        FiltroPOIIDM: 2, FiltroFibIDM: 2, FiltroFVGIDM: 2, FiltroDispIDM: 2, FiltroVolumeIDM: 2,
+        PeriodoVolumeFlip: 2, CorpoMinFlip: 0.55 };
+      const lower = { 14: [110, 111, 105, 108, 10], 15: [109, 113, 103, 105, 10],
+        16: [108, 110, 95, 98, 30], 17: [99, 100, 95, 96, 10] };
+      const delayed = idmLocalFixture(side, { config: { ...config, MostrarIDMCandidatos: true }, lower, repeat: true });
+      const [level] = idmModelArchive(delayed.model, 1, side);
+      assert.deepEqual([level.fim, level.flipref, level.ativacao, level.publicacao, level.evidencias], [15, 16, 17, 18, 31]);
+      const labelsAt = (bar) => segments(delayed.trace[bar]).map((line) => line[6]);
+      assert.ok(labelsAt(17).some((label) => label.includes('FLIP_LOCAL Candidato')));
+      assert.ok(labelsAt(18).some((label) => label.includes('FLIP_LOCAL Sweep')));
+      assert.ok(labelsAt(17).every((label) => label !== 'IDM Confirmado'));
+      assert.equal(level.barraresultado, 18);
+      const scoreOnly = idmLocalFixture(side, { config: { FiltroVolumeIDM: 1, FiltroFibIDM: 1 } });
+      assert.equal(idmModelArchive(scoreOnly.model, 1, side)[0].evidencias, 2);
+      const unavailable = idmLocalFixture(side, { config: { FiltroVolumeIDM: 2 } });
+      assert.equal(idmModelArchive(unavailable.model, 1, side).length, 0);
+      const lateFVG = idmLocalFixture(side, { config: { FiltroFVGIDM: 2, FiltroAutomaticoFVG: false }, lower });
+      assert.equal(idmModelArchive(lateFVG.model, 1, side).length, 0);
+      const earlierTarget = idmLocalFixture(side, { config: { ModoConfirmacaoIDM: 2 } });
+      assert.equal(idmModelArchive(earlierTarget.model, 1, side)[0].resultado, 3);
+    }
+    return 'cinco filtros causais, qualificação tardia do Flip, evidência opcional e alvo consumido antes da associação';
+  },
+  J04() {
+    for (const side of [1, -1]) {
+      const lane = side === 1 ? 1 : 2;
+      const configure = (pendingCount) => (model, index) => {
+        if (index !== 23) return;
+        model.set('idmusados', 100, 4 + lane);
+        model.set('idmnovosids', 100, 2);
+        const base = (3 + lane) * 100;
+        for (let offset = 0; offset < 100; offset++) {
+          const slot = base + offset;
+          model.set('idmid', 1_000_000_001 + offset, slot);
+          model.set('idmmodeloregistro', 2, slot);
+          model.set('idmestado', 2, slot);
+          model.set('idmresultado', offset < pendingCount ? 1 : 0, slot);
+          model.set('idmpivo', 300 + offset, slot);
+          model.set('idmfim', 5 + offset, slot);
+          model.set('idmcontextoorigem', 1, slot);
+          model.set('idmnivelticks', side === 1 ? 96 : 124, slot);
+        }
+      };
+      const options = { ...idmPostOptions(), length: 24, side, config: { ModoIDM: 2, MaxBarrasConfirmacaoIDM: 1000,
+        ReacaoPosIDMATR: 10000, ModoConfirmacaoIDM: 2 } };
+      const full = idmFixture({ ...options, before: configure(100) });
+      assert.equal(full.model.element('idmmotivo', 4 + lane), 17);
+      assert.ok(idmModelArchive(full.model, 2, side).every((row) => row.id <= 1_000_000_100));
+      const recyclable = idmFixture({ ...options, before: configure(1) });
+      const [pending, replaced] = idmModelArchive(recyclable.model, 2, side);
+      assert.deepEqual([pending.id, pending.resultado, replaced.id, replaced.estado], [1_000_000_001, 1, 1_000_000_101, 1]);
+    }
+    const options = idmPostOptions();
+    const aliased = idmFixture({ ...options, config: { ModoIDM: 3 }, before(model, index) {
+      if (index !== 23) return;
+      model.set('idmnivelticks', 105, 0);
+      model.set('idmnivel', 105, 0);
+    } });
+    assert.deepEqual(aliased.lines[23].map((line) => line[1]), [105]);
+    assert.deepEqual(aliased.lines[24].map((line) => line[1]), [105]);
+    assert.deepEqual([idmModelArchive(aliased.model, 0, 1)[0].fim, idmModelArchive(aliased.model, 2, 1)[0].fim], [23, 23]);
+    return 'partições de capacidade, reciclagem protegida e deduplicação estritamente visual';
+  },
+  J05() {
+    for (const side of [1, -1]) {
+      const options = { firstSweep: 16, lower: { 14: [110, 112, 105, 108] },
+        before(model, index) {
+          if (index === 16) stageFacts(model, 15, [fact(side === -1 ? 1 : 2, 14, side === -1 ? 112 : 88)]);
+        } };
+      const fixture = idmLocalFixture(side, options);
+      const [selected] = idmModelArchive(fixture.model, 1, side);
+      assert.deepEqual([selected.origem, selected.pivo, selected.fim], [14, 15, 16]);
+      const historical = idmLocalFixture(side, { ...options, historical: true, config: { MostrarIDM: false } });
+      assert.deepEqual(idmModelArchive(historical.model, 1, side), [selected]);
+      const structural = idmFixture({ ...idmPostOptions(), side });
+      const all = idmFixture({ ...idmPostOptions(), side, config: { ModoIDM: 3 } });
+      assert.deepEqual(idmModelArchive(all.model, 0, side), idmModelArchive(structural.model, 0, side));
+    }
+    return 'desempate do sweep, recarga, visibilidade e paridade de STRUCTURAL em ALL';
   },
   I07() {
     const options = { length: 21, envelope: { 18: [106, 110, 99, 108] } };
@@ -1662,7 +1962,7 @@ const cases = {
     assert.deepEqual(idmArchive(live.model), idmArchive(hiddenLow.model));
     assert.equal(idmArchive(hiddenHigh.model, -1).length, 1);
     assert.ok([hidden, hiddenLow, hiddenHigh].every(({ lines }) => lines.every((line) => line.length === 0)));
-    assert.equal(idmFixture({ config: { ModoIDM: 1 } }).model.get('idmconfigvalida'), false);
+    assert.equal(idmFixture({ config: { ModoIDM: 4 } }).model.get('idmconfigvalida'), false);
     for (const ModoFaixaOB of [0, 1, 2, 3, 4]) {
       const config = { ModoFaixaOB, MostrarFlip: true, MostrarFaixasFlip: true, MostrarCandidatosFlip: true };
       const prior = poiFixture({ config, program: acceptedAdvanced });
@@ -1680,7 +1980,7 @@ const cases = {
       const trace = native.step(index);
       assert.deepEqual(trace.filter(([draw]) => draw !== 'linesegment'), prior.step(index));
     });
-    for (const [side, expected] of [[1, [399, 408, 409, 415]], [-1, [101, 118, 119, 240]]]) {
+    for (const [side, expected] of [[1, [399, 408, 409, 415]], [-1, [101, 118, 119, 219]]]) {
       const [zone] = idmArchive(native, side);
       assert.deepEqual([zone.origem, zone.ativacao, zone.publicacao, zone.fim], expected);
       assert.equal(zone.nivelticks, nativeBars[zone.origem][side === 1 ? 2 : 1]);

@@ -1,6 +1,6 @@
 # 10A — IDM estrutural
 
-Status: ready-for-human
+Status: aceita
 
 Dependência aceita em [09C](09C-flip-avancado.md). A entrega aplica a [seção C1](../SPEC_evolucao.md#c1-structural-10a).
 
@@ -22,7 +22,7 @@ Dependência aceita em [09C](09C-flip-avancado.md). A entrega aplica a [seção 
 
 ## Validação no Profit Pro
 
-Compilação, conferência visual em Replay e aceite estão pendentes.
+O usuário informou em 24/11/2026 que os testes da 10A passaram e autorizou a próxima entrega. A revisão aceita é o commit `7898185`, com o SHA-256 registrado acima. Versão do Profit, ativo, período, parâmetros e resultados individuais da execução não foram informados.
 
 1. Compilar o fonte acima. Aplicar com `ModoFaixaOB=0`, `ModoIDM=0`, `HabilitarIDM=True` e `MostrarIDM=True`. Manter `MostrarIDMLow=True` e `MostrarIDMHigh=True`.
 2. Em Replay, conferir preço congelado, publicação somente em B+1, âncora em B, linha tracejada entre sessões e término no candle fechado da primeira penetração. Testar toque exato e os dois valores de `PoliticaNovoBOS`.
