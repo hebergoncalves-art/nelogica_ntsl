@@ -16,6 +16,75 @@ const
   TotalEspacosBreaker = 300;
   QuadrosOBRemovidos = 5;
   TotalEspacosOBRemovidos = 500;
+  // 08A: dois lotes de 320, com maximo de 315 fatos por barra:
+  // 204 OB, 101 FVG, 6 estruturais, 1 EQ, 1 PD e 2 snapshots de fluxo.
+  SMCLote = 320;
+  SMCBaseHistorico = 640;
+  SMCCapacidade = 100;
+  SMCUltimoIndice = 2539;
+  SMCHistPivos = 200;
+  SMCPrazoRuptura = 100;
+  SMCAtivo = 0;
+  SMCFato = 1;
+  SMCMitigado = 2;
+  SMCDescarte = 3;
+  SMCRejeitado = 4;
+  SMCAguardando = 1;
+  SMCQualificado = 2;
+  SMCTargetNotPreknown = 3;
+  SMCSemCruzamento = 4;
+  SMCCancelado = 5;
+  SMCExpirado = 6;
+  SMCDadosInvalidos = 7;
+  SMCProtecaoIncerta = 8;
+  SMCPerdaProtecao = 9;
+  SMCRetornoExtremo = 10;
+  SMCHH = 11;
+  SMCHL = 12;
+  SMCLH = 13;
+  SMCLL = 14;
+  SMCIgual = 15;
+  SMCAmbiguo = 16;
+  SMCCapacityFull = 17;
+  SMCAlvoSubstituido = 18;
+  SMCContextoPerdido = 19;
+  SMCTransicao = 2;
+  FlipCapacidade = 100;
+  FlipUltimoIndice = 399;
+  FlipAguardaReacao = 1;
+  FlipArmado = 2;
+  FlipConfirmado = 3;
+  FlipPerdaPrecoce = 4;
+  FlipExtremoRompido = 5;
+  FlipPrazoExcedido = 6;
+  FlipDadosInvalidos = 7;
+  FlipOrdemAmbigua = 8;
+  FlipGapBloqueado = 9;
+  FlipRetornouNivel = 10;
+  FlipATRIndisponivel = 11;
+  FlipSemReacao = 12;
+  FlipForaTolerancia = 13;
+  FlipSemVaga = 17;
+  POILimiteVisual = 20;
+  POIAguardaSaida = 1;
+  POIFresh = 2;
+  POITocada = 3;
+  POIMitigada50 = 4;
+  POIMitigadaTotal = 5;
+  POIInvalidada = 6;
+  POIExpirada = 7;
+  POIEncerrada = 8;
+  POISemOrigem = 10;
+  POIDadosInvalidos = 11;
+  POILarguraInvalida = 12;
+  POIDistalAntesDaAtivacao = 13;
+  POIPreMitigada = 14;
+  POIConfiguracaoInvalida = 15;
+  POIRetesteAguardando = 1;
+  POIRetesteConfirmado = 2;
+  POIRetesteIndisponivel = 3;
+  POIRetesteExpirado = 4;
+  POIRetesteEncerrado = 5;
 
 input
   PeriodoSwing(50);
@@ -44,6 +113,41 @@ input
   CorZonaEquilibrium(clGray);
   CorZonaDiscount(clTeal);
   MostrarBreakerBlocks(False);
+  PeriodoATRSMC(14);
+  ToleranciaSMCTicks(1);
+  BufferRupturaSMCTicks(1);
+  DebugSMC(False);
+  HabilitarFlip(False);
+  MostrarFlip(False);
+  EscalaFlip(2);
+  ReacaoMinFlipATR(0.5);
+  MaxBarrasFlip(100);
+  PermitirGapFlip(True);
+  MostrarCandidatosFlip(False);
+  MostrarFaixasFlip(False);
+  TipoZonaFlip(0);
+  MaxBuscaOrigemFlip(30);
+  FallbackPivoFlip(True);
+  MaxBaseCandlesFlip(3);
+  BaseRangeFlipATR(1.0);
+  MaxLarguraFlipATR(0.0);
+  ExigirFreshFlip(False);
+  MeioZonaFlip(True);
+  MaxFlipVisiveis(10);
+  ModoInvalidacaoFlip(0);
+  BufferInvalidacaoTicksFlip(1);
+  MostrarInvalidadasFlip(1);
+  OcultarMitigadasFlip(0);
+  EncerrarAposMitigacaoFlip(0);
+  MaxIdadeFlip(0);
+  MaxVisitasFlip(0);
+  ModoRetesteFlip(0);
+  ReacaoRetesteATRFlip(0.5);
+  MaxBarrasRetesteFlip(20);
+  CorFaixaFlipAlta(clGreen);
+  CorFaixaFlipBaixa(clRed);
+  CorInvalidadaFlip(clGray);
+  MostrarOrigemFlip(False);
 
 var
   periodo, perna, vies : Integer;
@@ -112,6 +216,102 @@ var
   inferFVGFechado, superFVGFechado, inferBreaker, superBreaker, chegadaBreaker, saidaTravessia : Float;
   centroBreaker, alturaBreaker : Float;
 
+  calculaPD, calculaFVG, calculaOBInterno, calculaOBSwing, observaEQ : Boolean;
+  smcColeta, smcConfigValida, smcBarraValida, smcTemAnterior, smcATRDisponivel : Boolean;
+  smcLoteAusente : Boolean;
+  smcTick, smcTR, smcSomaTR, smcATR : Float;
+  smcAmostrasATR, smcBarrasValidas, smcUltimaPublicacao, smcOrigemPublicada, smcBarra, smcContador : Integer;
+  smcQuadro, smcBase, smcSlot, smcFaixa, smcOrigem, smcMotivo, smcPosicao : Integer;
+  smcOrigemEQTopo, smcOrigemEQFundo, smcOrigemPD : Integer;
+  smcIndice, smcPrimeiro, smcUltimo, smcDestino, smcTerminal, smcAchado : Integer;
+  smcInicioFaixa, smcFimFaixa, smcDeslocamento, smcDataConfirmada, smcHoraConfirmada : Integer;
+  smcPublicados, smcReciclados, smcRejeitadosCapacidade, smcMaiorLote : Integer;
+  smcLotes : array[0..1] of Integer;
+  smcCarimbos : array[0..1] of Integer;
+  // Chave local: faixa + nascimento. Remocoes referenciam a chave original.
+  // 1..4 Pivot, 5..8 Break, 9..12 OB, 13..14 FVG, 15..16 EQ, 17 PD, 18..19 FlowSnapshot.
+  smcEventoFaixa, smcEventoOrigem, smcEventoRef, smcEventoNascimento : array[0..SMCUltimoIndice] of Integer;
+  smcEventoEstado, smcEventoConfirmacao, smcEventoPublicacao : array[0..SMCUltimoIndice] of Integer;
+  smcEventoData, smcEventoHora, smcEventoDataOrigem, smcEventoHoraOrigem : array[0..SMCUltimoIndice] of Integer;
+  smcEventoTerminal, smcEventoDataTerminal, smcEventoHoraTerminal : array[0..SMCUltimoIndice] of Integer;
+  smcEventoQualificacao, smcEventoBarraQualificacao : array[0..SMCUltimoIndice] of Integer;
+  smcEventoLo, smcEventoHi, smcEventoBrutoLo, smcEventoBrutoHi, smcEventoATR : array[0..SMCUltimoIndice] of Float;
+  smcEventoATRValido, smcEventoDadosValidos : array[0..SMCUltimoIndice] of Boolean;
+  smcOrigemOB, smcPivoOB : array[1..TotalEspacosBlocos] of Integer;
+  smcUsados : array[1..19] of Integer;
+  smcPivoNaBarra, smcBreakNaBarra, smcPivoConfirmado : array[1..4] of Integer;
+  smcPivoValido : array[1..4] of Boolean;
+  smcEspera : array[1..4] of Integer;
+  smcEsperaContexto : array[1..4] of Integer;
+
+  smcEscala, smcDirecao, smcLado, smcResultado, smcMotivoFluxo : Integer;
+  smcAntigoFluxo, smcQuebra, smcQuebraRef, smcQuebraOrigem : Integer;
+  smcFechamentoTicks, smcAnteriorTicks, smcNivelTicks, smcDistanciaTicks : Integer;
+  smcHistBase, smcHistPos, smcHistUltimo, smcHistQtd, smcHistOposto : Integer;
+  smcHistRecente, smcHistSegundo, smcHistTerceiro, smcHistQuarto, smcAlvo : Integer;
+  smcCoerente, smcMudaFluxo, smcRegistraPivo, smcCruzamentoValido : Boolean;
+  smcFluxo, smcContexto, smcDesdeTransicao, smcDirecaoTransicao : array[0..1] of Integer;
+  smcProtecaoOrigem, smcProtecaoConfirmacao : array[0..1] of Integer;
+  smcProtecaoPreco, smcExtremoTransicao : array[0..1] of Float;
+  smcTemExtremoTransicao : array[0..1] of Boolean;
+  smcHistInicio, smcHistTotal : array[0..1] of Integer;
+  smcHistOrigem, smcHistConfirmacao, smcHistLado : array[0..399] of Integer;
+  smcHistPreco : array[0..399] of Float;
+
+  flipConfigValida, flipCalcula, smcCalcula : Boolean;
+  flipEscala, flipLado, flipDirecao, flipReacaoLado, flipNovoPivo, flipPivoAnterior : Integer;
+  flipMeioTicks, flipExtremoTicks, flipDistancia, flipDistanciaAnterior : Integer;
+  flipBase, flipIndice, flipDestino, flipTerminal, flipQuebraLegada : Integer;
+  flipInicioDia, flipInicioHora, flipFimDia, flipFimHora, flipCor, flipTraco, flipSaida : Integer;
+  flipConfirmar, flipGap, flipDesenha : Boolean;
+  flipNivelDesenho, flipMinimo : Float;
+  flipLegenda : String;
+  flipTotal, flipSemVagaTotal : Integer;
+  flipFluxoAnterior, flipPerdaProtecao : array[0..1] of Integer;
+  flipPivoAmbiguo : array[0..1] of Boolean;
+  // Candidatos: interna compra/venda, swing compra/venda.
+  flipFase, flipMotivo, flipBarraMotivo, flipPivoAdmitido, flipAlvoContinuacao : array[1..4] of Integer;
+  flipExtremoRef, flipMeioRef, flipReacaoRef, flipCruzaEm, flipLegadoEm, flipLegadoTipo : array[1..4] of Integer;
+  flipExtremoOrigem, flipMeioOrigem, flipReacaoOrigem, flipMeioDia, flipMeioHora : array[1..4] of Integer;
+  flipExtremoPreco, flipMeioPreco, flipReacaoPreco, flipATRMeio : array[1..4] of Float;
+  flipUsados, flipPublicadoSlot : array[1..4] of Integer;
+  // O historico preserva o Flip original. Continuacao e falha tem barras proprias.
+  flipEventoExtremo, flipEventoMeio, flipEventoReacao, flipEventoCruzamento : array[0..FlipUltimoIndice] of Integer;
+  flipEventoOrigemExtremo, flipEventoOrigemMeio, flipEventoOrigemReacao : array[0..FlipUltimoIndice] of Integer;
+  flipEventoConfirmacao, flipEventoPublicacao, flipEventoData, flipEventoHora : array[0..FlipUltimoIndice] of Integer;
+  flipEventoDataMeio, flipEventoHoraMeio, flipEventoContexto : array[0..FlipUltimoIndice] of Integer;
+  flipEventoLegado, flipEventoTipoLegado, flipEventoContinuacao, flipEventoFalha : array[0..FlipUltimoIndice] of Integer;
+  flipEventoReversao : array[0..FlipUltimoIndice] of Boolean;
+  flipEventoNivel, flipEventoExtremoPreco, flipEventoReacaoPreco, flipEventoATRMeio : array[0..FlipUltimoIndice] of Float;
+
+  poiCalcula, poiConfigValida, poiATRValido : Boolean;
+  poiATRBarra, poiLo, poiHi, poiMin, poiMax, poiATRBase, poiProf, poiBaseLo, poiBaseHi : Float;
+  poiLado, poiDir, poiBase, poiSlot, poiEvento, poiDestino, poiTerminal, poiIdTotal : Integer;
+  poiInicio, poiBusca, poiImpulso, poiOrigem, poiPerna, poiCandles, poiMotivoAtual : Integer;
+  poiLoTicks, poiHiTicks, poiProx, poiDist, poiAvanco, poiPavio, poiPavioReacao : Integer;
+  poiBarraPivo, poiIndicePivo, poiInc, poiTotalVisual : Integer;
+  poiDataFim, poiHoraDesenhoFim, poiPivoAtual, poiPos, poiTroca : Integer;
+  poiValido, poiSequencia, poiDentro, poiSaiu, poiPreMitigou, poiInvalidou, poiTocou, poiEncerrou, poiIdadeExcedida : Boolean;
+  poiVisitaInicial, poiAproximaInicial, poiReagiu, poiElegivel : Boolean;
+  poiUsados : array[1..4] of Integer;
+  poiPivoConfirmado, poiPivoNivel : array[1..2] of Integer;
+  poiPivoDisponivel : array[1..2] of Boolean;
+  // IDs por instância. O vínculo permanece legível após reciclar o slot da faixa.
+  flipEventoZonaID, flipEventoZonaMotivo : array[0..FlipUltimoIndice] of Integer;
+  poiID, poiLados, poiLoZona, poiHiZona, poiOrigemZona, poiDiaOrigem, poiHoraOrigem : array[0..FlipUltimoIndice] of Integer;
+  poiAtivacao, poiDia, poiHora, poiEstado, poiFimZona, poiDiaFim, poiHoraFim : array[0..FlipUltimoIndice] of Integer;
+  poiPublicacao, poiToque, poiVisitas, poiReteste, poiAlvo, poiAlvoRef, poiExtremo : array[0..FlipUltimoIndice] of Integer;
+  poiStatusReteste : array[0..FlipUltimoIndice] of Integer;
+  poiVisita, poiAproxima, poiPre, poiATRToqueValido, poiAlvoRompido : array[0..FlipUltimoIndice] of Boolean;
+  poiCruzouAlvo, poiIntersecaoInvalidacao, poiPrimeiraVisita : array[0..FlipUltimoIndice] of Boolean;
+  poiProfundidade, poiATRToque : array[0..FlipUltimoIndice] of Float;
+  poiOrdem, poiCores, poiDiaIniV, poiHoraIniV, poiDiaFimV, poiHoraFimV : array[1..POILimiteVisual] of Integer;
+  poiDiaPrimeiroV, poiHoraPrimeiroV, poiMeioIniV, poiMeioFimV : array[1..POILimiteVisual] of Integer;
+  poiDiaOrigV, poiHoraOrigV : array[1..POILimiteVisual] of Integer;
+  poiCentroV, poiAlturaV : array[1..POILimiteVisual] of Float;
+  poiRotulo : String;
+  poiMeioDiasV : array[1..POILimiteVisual] of Boolean;
+
 begin
   // Gravar data e hora em series antes de consultar candles anteriores.
   dataCandle := Date;
@@ -124,6 +324,96 @@ begin
   calculaEQ := (ModoFaixaOB = 0) and MostrarEQHEQL;
   exibeFVG := (ModoFaixaOB = 0) and MostrarFVG;
   calculaBreaker := MostrarBreakerBlocks and ((ModoFaixaOB = 1) or (ModoFaixaOB = 2));
+  observaEQ := calculaEQ or DebugSMC;
+  calculaPD := ((ModoFaixaOB = 0) and MostrarZonasPD) or DebugSMC;
+  calculaFVG := exibeFVG or DebugSMC;
+  calculaOBInterno := calculaBlocosInternos or DebugSMC;
+  calculaOBSwing := calculaBlocosSwing or DebugSMC;
+  flipConfigValida := (EscalaFlip >= 0) and (EscalaFlip <= 2)
+    and (ReacaoMinFlipATR >= 0) and (MaxBarrasFlip >= 0);
+  flipCalcula := HabilitarFlip and flipConfigValida;
+  poiConfigValida := (TipoZonaFlip >= 0) and (TipoZonaFlip <= 2)
+    and (MaxBuscaOrigemFlip >= 1) and (MaxBaseCandlesFlip >= 1) and (BaseRangeFlipATR >= 0)
+    and (MaxLarguraFlipATR >= 0) and (MaxFlipVisiveis >= 1) and (MaxFlipVisiveis <= POILimiteVisual)
+    and (ModoInvalidacaoFlip >= 0) and (ModoInvalidacaoFlip <= 1) and (BufferInvalidacaoTicksFlip >= 0)
+    and (MostrarInvalidadasFlip >= 0) and (MostrarInvalidadasFlip <= 2)
+    and ((OcultarMitigadasFlip = 0) or (OcultarMitigadasFlip = 50) or (OcultarMitigadasFlip = 100))
+    and ((EncerrarAposMitigacaoFlip = 0) or (EncerrarAposMitigacaoFlip = 50) or (EncerrarAposMitigacaoFlip = 100))
+    and (MaxIdadeFlip >= 0) and (MaxVisitasFlip >= 0) and (ModoRetesteFlip >= 0) and (ModoRetesteFlip <= 2)
+    and (ReacaoRetesteATRFlip >= 0) and (MaxBarrasRetesteFlip >= 1);
+  poiCalcula := flipCalcula and poiConfigValida;
+  smcCalcula := DebugSMC or flipCalcula;
+
+  smcColeta := False;
+  if smcCalcula then
+  begin
+    smcConfigValida := (PeriodoATRSMC >= 2) and (ToleranciaSMCTicks >= 0)
+      and (BufferRupturaSMCTicks >= 0);
+    if CurrentBar = 0 then
+    begin
+      smcUltimaPublicacao := -1;
+      smcOrigemPublicada := -1;
+      smcPublicados := 0;
+      smcReciclados := 0;
+      smcRejeitadosCapacidade := 0;
+      smcMaiorLote := 0;
+      smcLoteAusente := False;
+      smcCarimbos[0] := 0;
+      smcCarimbos[1] := 0;
+      smcAmostrasATR := 0;
+      smcBarrasValidas := 0;
+      smcSomaTR := 0;
+      smcATR := 0;
+      smcATRDisponivel := False;
+      smcTemAnterior := False;
+      for smcFaixa := 1 to 19 do
+        smcUsados[smcFaixa] := 0;
+      for smcLado := 1 to 4 do
+      begin
+        smcEspera[smcLado] := -1;
+        smcPivoConfirmado[smcLado] := -1;
+        smcPivoValido[smcLado] := False;
+      end;
+      for smcEscala := 0 to 1 do
+      begin
+        smcFluxo[smcEscala] := 0;
+        smcContexto[smcEscala] := 0;
+        smcProtecaoConfirmacao[smcEscala] := -1;
+        smcHistInicio[smcEscala] := 0;
+        smcHistTotal[smcEscala] := 0;
+      end;
+      if flipCalcula then
+      begin
+        flipTotal := 0;
+        flipSemVagaTotal := 0;
+        for flipLado := 1 to 4 do
+        begin
+          flipFase[flipLado] := 0;
+          flipUsados[flipLado] := 0;
+          flipMotivo[flipLado] := 0;
+          flipBarraMotivo[flipLado] := -1;
+          flipPublicadoSlot[flipLado] := -1;
+        end;
+      end;
+    end;
+    // Uma nova passagem pela barra em formacao substitui o lote inteiro.
+    smcColeta := CurrentBar > smcUltimaPublicacao;
+    if smcColeta then
+    begin
+      smcQuadro := Mod(CurrentBar, 2);
+      smcBase := smcQuadro * SMCLote;
+      smcContador := 0;
+      smcOrigemEQTopo := -1;
+      smcOrigemEQFundo := -1;
+      smcOrigemPD := -1;
+      if CurrentBar > 0 then
+      begin
+        smcOrigemEQTopo := smcOrigemEQTopo[1];
+        smcOrigemEQFundo := smcOrigemEQFundo[1];
+        smcOrigemPD := smcOrigemPD[1];
+      end;
+    end;
+  end;
   if calculaBreaker then
   begin
     ladoOrigemBreaker := 1;
@@ -216,6 +506,20 @@ begin
         barraFundo := CurrentBar - periodo;
         temFundo := True;
         fundoRompido := False;
+        if smcColeta then
+        begin
+          smcSlot := smcBase + smcContador;
+          smcEventoFaixa[smcSlot] := 4;
+          smcEventoOrigem[smcSlot] := barraFundo;
+          smcEventoRef[smcSlot] := -1;
+          smcEventoNascimento[smcSlot] := CurrentBar;
+          smcEventoEstado[smcSlot] := SMCFato;
+          smcEventoLo[smcSlot] := nivelFundo;
+          smcEventoHi[smcSlot] := nivelFundo;
+          smcEventoBrutoLo[smcSlot] := nivelFundo;
+          smcEventoBrutoHi[smcSlot] := nivelFundo;
+          smcContador := smcContador + 1;
+        end;
         if (ModoFaixaOB = 0) and MostrarPivos then
           PlotText("Fundo swing", clLime, 0, 10);
       end
@@ -225,6 +529,20 @@ begin
         barraTopo := CurrentBar - periodo;
         temTopo := True;
         topoRompido := False;
+        if smcColeta then
+        begin
+          smcSlot := smcBase + smcContador;
+          smcEventoFaixa[smcSlot] := 3;
+          smcEventoOrigem[smcSlot] := barraTopo;
+          smcEventoRef[smcSlot] := -1;
+          smcEventoNascimento[smcSlot] := CurrentBar;
+          smcEventoEstado[smcSlot] := SMCFato;
+          smcEventoLo[smcSlot] := nivelTopo;
+          smcEventoHi[smcSlot] := nivelTopo;
+          smcEventoBrutoLo[smcSlot] := nivelTopo;
+          smcEventoBrutoHi[smcSlot] := nivelTopo;
+          smcContador := smcContador + 1;
+        end;
         if (ModoFaixaOB = 0) and MostrarPivos then
           PlotText("Topo swing", clRed, 2, 10);
       end;
@@ -237,7 +555,7 @@ begin
       and (Close < nivelFundo) and (Close[1] >= nivelFundo[1]);
   end;
 
-  if (ModoFaixaOB = 0) and MostrarZonasPD then
+  if calculaPD then
   begin
     topoPD := 0;
     fundoPD := 0;
@@ -253,7 +571,23 @@ begin
       if temFundo[1] then
         fundoPD := Min(fundoPD[1], Low);
 
-      if LastBarOnChart and temTopo[1] and temFundo[1] and (topoPD > fundoPD) then
+      if smcColeta and temTopo[1] and temFundo[1] and (topoPD > fundoPD) then
+      begin
+        smcSlot := smcBase + smcContador;
+        smcEventoFaixa[smcSlot] := 17;
+        smcEventoOrigem[smcSlot] := smcOrigemPD;
+        smcEventoRef[smcSlot] := -1;
+        smcEventoNascimento[smcSlot] := CurrentBar;
+        smcEventoEstado[smcSlot] := SMCFato;
+        smcEventoLo[smcSlot] := fundoPD;
+        smcEventoHi[smcSlot] := topoPD;
+        smcEventoBrutoLo[smcSlot] := fundoPD;
+        smcEventoBrutoHi[smcSlot] := topoPD;
+        smcContador := smcContador + 1;
+      end;
+
+      if (ModoFaixaOB = 0) and MostrarZonasPD and LastBarOnChart
+        and temTopo[1] and temFundo[1] and (topoPD > fundoPD) then
       begin
         amplitudePD := topoPD - fundoPD;
         meiaAlturaPD := amplitudePD * 0.025;
@@ -308,11 +642,15 @@ begin
           topoPD := nivelTopo;
         diaOrigemPD := dataCandle[periodo];
         horaOrigemPD := horaCandle[periodo];
+        if smcColeta then
+          smcOrigemPD := CurrentBar - periodo;
       end;
     end;
   end;
 
-  if (MostrarEstruturaInterna or calculaBlocosInternos) and (CurrentBar >= JanelaInterna) then
+  if (MostrarEstruturaInterna or calculaOBInterno or (flipCalcula and (EscalaFlip <> 1))
+    or (poiCalcula and (ModoRetesteFlip = 2)))
+    and (CurrentBar >= JanelaInterna) then
   begin
     if High[JanelaInterna] > Highest(High, JanelaInterna) then
       pernaInterna := 0
@@ -327,6 +665,20 @@ begin
         barraFundoInterno := CurrentBar - JanelaInterna;
         temFundoInterno := True;
         fundoInternoRompido := False;
+        if smcColeta then
+        begin
+          smcSlot := smcBase + smcContador;
+          smcEventoFaixa[smcSlot] := 2;
+          smcEventoOrigem[smcSlot] := barraFundoInterno;
+          smcEventoRef[smcSlot] := -1;
+          smcEventoNascimento[smcSlot] := CurrentBar;
+          smcEventoEstado[smcSlot] := SMCFato;
+          smcEventoLo[smcSlot] := fundoInterno;
+          smcEventoHi[smcSlot] := fundoInterno;
+          smcEventoBrutoLo[smcSlot] := fundoInterno;
+          smcEventoBrutoHi[smcSlot] := fundoInterno;
+          smcContador := smcContador + 1;
+        end;
       end
       else
       begin
@@ -334,6 +686,20 @@ begin
         barraTopoInterno := CurrentBar - JanelaInterna;
         temTopoInterno := True;
         topoInternoRompido := False;
+        if smcColeta then
+        begin
+          smcSlot := smcBase + smcContador;
+          smcEventoFaixa[smcSlot] := 1;
+          smcEventoOrigem[smcSlot] := barraTopoInterno;
+          smcEventoRef[smcSlot] := -1;
+          smcEventoNascimento[smcSlot] := CurrentBar;
+          smcEventoEstado[smcSlot] := SMCFato;
+          smcEventoLo[smcSlot] := topoInterno;
+          smcEventoHi[smcSlot] := topoInterno;
+          smcEventoBrutoLo[smcSlot] := topoInterno;
+          smcEventoBrutoHi[smcSlot] := topoInterno;
+          smcContador := smcContador + 1;
+        end;
       end;
     end;
 
@@ -354,6 +720,20 @@ begin
         else
           PlotText("BOS interno alta", clLime, 3, 8, topoInterno);
       end;
+      if smcColeta then
+      begin
+        smcSlot := smcBase + smcContador;
+        smcEventoFaixa[smcSlot] := 5;
+        smcEventoOrigem[smcSlot] := barraTopoInterno;
+        smcEventoRef[smcSlot] := -1;
+        smcEventoNascimento[smcSlot] := CurrentBar;
+        smcEventoEstado[smcSlot] := SMCFato;
+        smcEventoLo[smcSlot] := topoInterno;
+        smcEventoHi[smcSlot] := topoInterno;
+        smcEventoBrutoLo[smcSlot] := viesInterno;
+        smcEventoBrutoHi[smcSlot] := 1;
+        smcContador := smcContador + 1;
+      end;
       topoInternoRompido := True;
       viesInterno := 1;
     end;
@@ -371,6 +751,20 @@ begin
         else
           PlotText("BOS interno baixa", clRed, 3, 8, fundoInterno);
       end;
+      if smcColeta then
+      begin
+        smcSlot := smcBase + smcContador;
+        smcEventoFaixa[smcSlot] := 6;
+        smcEventoOrigem[smcSlot] := barraFundoInterno;
+        smcEventoRef[smcSlot] := -1;
+        smcEventoNascimento[smcSlot] := CurrentBar;
+        smcEventoEstado[smcSlot] := SMCFato;
+        smcEventoLo[smcSlot] := fundoInterno;
+        smcEventoHi[smcSlot] := fundoInterno;
+        smcEventoBrutoLo[smcSlot] := viesInterno;
+        smcEventoBrutoHi[smcSlot] := -1;
+        smcContador := smcContador + 1;
+      end;
       fundoInternoRompido := True;
       viesInterno := -1;
     end;
@@ -386,6 +780,20 @@ begin
         PlotText("CHoCH alta", clGreen, 3, 8, nivelTopo)
       else
         PlotText("BOS alta", clGreen, 3, 8, nivelTopo);
+    end;
+    if smcColeta then
+    begin
+      smcSlot := smcBase + smcContador;
+      smcEventoFaixa[smcSlot] := 7;
+      smcEventoOrigem[smcSlot] := barraTopo;
+      smcEventoRef[smcSlot] := -1;
+      smcEventoNascimento[smcSlot] := CurrentBar;
+      smcEventoEstado[smcSlot] := SMCFato;
+      smcEventoLo[smcSlot] := nivelTopo;
+      smcEventoHi[smcSlot] := nivelTopo;
+      smcEventoBrutoLo[smcSlot] := vies;
+      smcEventoBrutoHi[smcSlot] := 1;
+      smcContador := smcContador + 1;
     end;
     topoRompido := True;
     vies := 1;
@@ -403,6 +811,20 @@ begin
         PlotText("CHoCH baixa", clRed, 3, 8, nivelFundo)
       else
         PlotText("BOS baixa", clRed, 3, 8, nivelFundo);
+    end;
+    if smcColeta then
+    begin
+      smcSlot := smcBase + smcContador;
+      smcEventoFaixa[smcSlot] := 8;
+      smcEventoOrigem[smcSlot] := barraFundo;
+      smcEventoRef[smcSlot] := -1;
+      smcEventoNascimento[smcSlot] := CurrentBar;
+      smcEventoEstado[smcSlot] := SMCFato;
+      smcEventoLo[smcSlot] := nivelFundo;
+      smcEventoHi[smcSlot] := nivelFundo;
+      smcEventoBrutoLo[smcSlot] := vies;
+      smcEventoBrutoHi[smcSlot] := -1;
+      smcContador := smcContador + 1;
     end;
     fundoRompido := True;
     vies := -1;
@@ -429,7 +851,7 @@ begin
   else if ModoFaixaOB = 0 then
     NoPlot(4);
 
-  if calculaBlocosInternos or calculaBlocosSwing or calculaEQ then
+  if calculaOBInterno or calculaOBSwing or observaEQ then
   begin
     trAtual := High - Low;
     somaTR := 0;
@@ -447,7 +869,7 @@ begin
       atrWilder := (199 * atrWilder[1] + trAtual) / 200;
   end;
 
-  if calculaEQ then
+  if observaEQ then
   begin
     janelaEQ := BarrasConfirmacaoEQ;
     if janelaEQ < 1 then
@@ -483,14 +905,52 @@ begin
         if pernaEQ = 1 then
         begin
           if temFundoEQ and (Abs(Low[janelaEQ] - fundoEQ) < toleranciaEQ) then
-            PlotText("EQL", clLime, 3, 8, Low[janelaEQ]);
+          begin
+            if calculaEQ then
+              PlotText("EQL", clLime, 3, 8, Low[janelaEQ]);
+            if smcColeta then
+            begin
+              smcSlot := smcBase + smcContador;
+              smcEventoFaixa[smcSlot] := 16;
+              smcEventoOrigem[smcSlot] := CurrentBar - janelaEQ;
+              smcEventoRef[smcSlot] := smcOrigemEQFundo;
+              smcEventoNascimento[smcSlot] := CurrentBar;
+              smcEventoEstado[smcSlot] := SMCFato;
+              smcEventoLo[smcSlot] := fundoEQ;
+              smcEventoHi[smcSlot] := Low[janelaEQ];
+              smcEventoBrutoLo[smcSlot] := fundoEQ;
+              smcEventoBrutoHi[smcSlot] := Low[janelaEQ];
+              smcContador := smcContador + 1;
+            end;
+          end;
+          if smcColeta then
+            smcOrigemEQFundo := CurrentBar - janelaEQ;
           fundoEQ := Low[janelaEQ];
           temFundoEQ := True;
         end
         else
         begin
           if temTopoEQ and (Abs(High[janelaEQ] - topoEQ) < toleranciaEQ) then
-            PlotText("EQH", clRed, 3, 8, High[janelaEQ]);
+          begin
+            if calculaEQ then
+              PlotText("EQH", clRed, 3, 8, High[janelaEQ]);
+            if smcColeta then
+            begin
+              smcSlot := smcBase + smcContador;
+              smcEventoFaixa[smcSlot] := 15;
+              smcEventoOrigem[smcSlot] := CurrentBar - janelaEQ;
+              smcEventoRef[smcSlot] := smcOrigemEQTopo;
+              smcEventoNascimento[smcSlot] := CurrentBar;
+              smcEventoEstado[smcSlot] := SMCFato;
+              smcEventoLo[smcSlot] := topoEQ;
+              smcEventoHi[smcSlot] := High[janelaEQ];
+              smcEventoBrutoLo[smcSlot] := topoEQ;
+              smcEventoBrutoHi[smcSlot] := High[janelaEQ];
+              smcContador := smcContador + 1;
+            end;
+          end;
+          if smcColeta then
+            smcOrigemEQTopo := CurrentBar - janelaEQ;
           topoEQ := High[janelaEQ];
           temTopoEQ := True;
         end;
@@ -498,7 +958,7 @@ begin
     end;
   end;
 
-  if calculaBlocosInternos or calculaBlocosSwing then
+  if calculaOBInterno or calculaOBSwing then
   begin
     volatilidade := atrWilder;
     if (not UsarATRBlocos) and (CurrentBar > 0) then
@@ -520,13 +980,13 @@ begin
       buscas[evento] := 0;
       origens[evento] := 0;
     end;
-    if calculaBlocosInternos and rompeTopoInterno then
+    if calculaOBInterno and rompeTopoInterno then
       buscas[1] := CurrentBar - barraTopoInterno;
-    if calculaBlocosInternos and rompeFundoInterno then
+    if calculaOBInterno and rompeFundoInterno then
       buscas[2] := CurrentBar - barraFundoInterno;
-    if calculaBlocosSwing and rompeTopo then
+    if calculaOBSwing and rompeTopo then
       buscas[3] := CurrentBar - barraTopo;
-    if calculaBlocosSwing and rompeFundo then
+    if calculaOBSwing and rompeFundo then
       buscas[4] := CurrentBar - barraFundo;
 
     for evento := 1 to 4 do
@@ -573,9 +1033,9 @@ begin
 
     primeiroGrupo := 0;
     ultimoGrupo := 1;
-    if not calculaBlocosInternos then
+    if not calculaOBInterno then
       primeiroGrupo := 1;
-    if not calculaBlocosSwing then
+    if not calculaOBSwing then
       ultimoGrupo := 0;
 
     if (ModoFaixaOB = 0) and LastBarOnChart then
@@ -611,6 +1071,38 @@ begin
       if descarte < 0 then
         descarte := 0;
 
+      // Inspecionar as saidas no quadro anterior, antes que este seja reciclado.
+      if smcColeta and (totalAnterior > 0) then
+        for leitura := 1 to totalAnterior do
+        begin
+          indiceAnterior := baseAnterior + leitura;
+          lado := direcoes[indiceAnterior];
+          smcMotivo := SMCAtivo;
+          if leitura <= descarte then
+            smcMotivo := SMCDescarte
+          else if ((lado = 1) and (precoBaixa < inferioresBlocos[indiceAnterior]))
+            or ((lado = -1) and (precoAlta > superioresBlocos[indiceAnterior])) then
+            smcMotivo := SMCMitigado;
+          if smcMotivo <> SMCAtivo then
+          begin
+            smcPosicao := 0;
+            if lado = -1 then
+              smcPosicao := 1;
+            smcDeslocamento := CurrentBar - smcOrigemOB[indiceAnterior];
+              smcSlot := smcBase + smcContador;
+              smcEventoFaixa[smcSlot] := 9 + grupo * 2 + smcPosicao;
+              smcEventoOrigem[smcSlot] := smcOrigemOB[indiceAnterior];
+              smcEventoRef[smcSlot] := smcPivoOB[indiceAnterior];
+              smcEventoNascimento[smcSlot] := criacoesBlocos[indiceAnterior];
+              smcEventoEstado[smcSlot] := smcMotivo;
+              smcEventoLo[smcSlot] := inferioresBlocos[indiceAnterior];
+              smcEventoHi[smcSlot] := superioresBlocos[indiceAnterior];
+              smcEventoBrutoLo[smcSlot] := Low[smcDeslocamento];
+              smcEventoBrutoHi[smcSlot] := High[smcDeslocamento];
+              smcContador := smcContador + 1;
+          end;
+        end;
+
       total := 0;
       if totalAnterior > descarte then
         for leitura := descarte + 1 to totalAnterior do
@@ -628,6 +1120,11 @@ begin
             criacoesBlocos[indiceAtual] := criacoesBlocos[indiceAnterior];
             superioresBlocos[indiceAtual] := superioresBlocos[indiceAnterior];
             inferioresBlocos[indiceAtual] := inferioresBlocos[indiceAnterior];
+            if smcColeta then
+            begin
+              smcOrigemOB[indiceAtual] := smcOrigemOB[indiceAnterior];
+              smcPivoOB[indiceAtual] := smcPivoOB[indiceAnterior];
+            end;
           end
           else if calculaBreaker and (grupo = 1) and (lado = ladoOrigemBreaker) then
           begin
@@ -649,6 +1146,24 @@ begin
           lado := 1;
           if evento > primeiroEvento then
             lado := -1;
+          if smcColeta then
+          begin
+            smcMotivo := SMCAtivo;
+            if ((lado = 1) and (precoBaixa < limiteInferior))
+              or ((lado = -1) and (precoAlta > limiteSuperior)) then
+              smcMotivo := SMCRejeitado;
+            smcSlot := smcBase + smcContador;
+            smcEventoFaixa[smcSlot] := 8 + evento;
+            smcEventoOrigem[smcSlot] := CurrentBar - origem;
+            smcEventoRef[smcSlot] := CurrentBar - buscas[evento];
+            smcEventoNascimento[smcSlot] := CurrentBar;
+            smcEventoEstado[smcSlot] := smcMotivo;
+            smcEventoLo[smcSlot] := limiteInferior;
+            smcEventoHi[smcSlot] := limiteSuperior;
+            smcEventoBrutoLo[smcSlot] := Low[origem];
+            smcEventoBrutoHi[smcSlot] := High[origem];
+            smcContador := smcContador + 1;
+          end;
           if ((lado = 1) and (precoBaixa >= limiteInferior))
             or ((lado = -1) and (precoAlta <= limiteSuperior)) then
           begin
@@ -660,12 +1175,18 @@ begin
             criacoesBlocos[indiceAtual] := CurrentBar;
             superioresBlocos[indiceAtual] := limiteSuperior;
             inferioresBlocos[indiceAtual] := limiteInferior;
+            if smcColeta then
+            begin
+              smcOrigemOB[indiceAtual] := CurrentBar - origem;
+              smcPivoOB[indiceAtual] := CurrentBar - buscas[evento];
+            end;
           end;
         end;
       end;
       quantidadesBlocos[listaAtual] := total;
 
-      if (ModoFaixaOB = 0) and LastBarOnChart then
+      if (ModoFaixaOB = 0) and LastBarOnChart
+        and (((grupo = 0) and calculaBlocosInternos) or ((grupo = 1) and calculaBlocosSwing)) then
       begin
         quantidade := QuantidadeBlocosInternos;
         if grupo = 1 then
@@ -905,7 +1426,7 @@ begin
     end;
   end;
 
-  if exibeFVG or calculaBreaker then
+  if calculaFVG or calculaBreaker then
   begin
     ladoNovoFVG := 0;
     retornoFVG := 0;
@@ -929,7 +1450,7 @@ begin
     end;
   end;
 
-  if exibeFVG then
+  if calculaFVG then
   begin
     extensaoEfetivaFVG := ExtensaoFVG;
     if extensaoEfetivaFVG < 0 then
@@ -956,6 +1477,32 @@ begin
       for leituraFVG := 1 to totalAnteriorFVG do
       begin
         entradaFVG := baseAnteriorFVG + leituraFVG;
+        if smcColeta then
+        begin
+          smcMotivo := SMCAtivo;
+          if ((direcoesFVG[entradaFVG] = 1) and (Low < inferioresFVG[entradaFVG]))
+            or ((direcoesFVG[entradaFVG] = -1) and (High > superioresFVG[entradaFVG])) then
+            smcMotivo := SMCMitigado
+          else if totalFVG >= CapacidadeFVG then
+            smcMotivo := SMCDescarte;
+          if smcMotivo <> SMCAtivo then
+          begin
+            smcFaixa := 13;
+            if direcoesFVG[entradaFVG] = -1 then
+              smcFaixa := 14;
+            smcSlot := smcBase + smcContador;
+            smcEventoFaixa[smcSlot] := smcFaixa;
+            smcEventoOrigem[smcSlot] := formacoesFVG[entradaFVG] - 1;
+            smcEventoRef[smcSlot] := formacoesFVG[entradaFVG] - 2;
+            smcEventoNascimento[smcSlot] := formacoesFVG[entradaFVG];
+            smcEventoEstado[smcSlot] := smcMotivo;
+            smcEventoLo[smcSlot] := inferioresFVG[entradaFVG];
+            smcEventoHi[smcSlot] := superioresFVG[entradaFVG];
+            smcEventoBrutoLo[smcSlot] := inferioresFVG[entradaFVG];
+            smcEventoBrutoHi[smcSlot] := superioresFVG[entradaFVG];
+            smcContador := smcContador + 1;
+          end;
+        end;
         if (totalFVG < CapacidadeFVG) and
           (((direcoesFVG[entradaFVG] = 1) and (Low >= inferioresFVG[entradaFVG]))
           or ((direcoesFVG[entradaFVG] = -1) and (High <= superioresFVG[entradaFVG]))) then
@@ -997,11 +1544,28 @@ begin
         inferioresFVG[saidaFVG] := High;
         superioresFVG[saidaFVG] := Low[2];
       end;
+      if smcColeta then
+      begin
+        smcFaixa := 13;
+        if ladoNovoFVG = -1 then
+          smcFaixa := 14;
+        smcSlot := smcBase + smcContador;
+        smcEventoFaixa[smcSlot] := smcFaixa;
+        smcEventoOrigem[smcSlot] := CurrentBar - 1;
+        smcEventoRef[smcSlot] := CurrentBar - 2;
+        smcEventoNascimento[smcSlot] := CurrentBar;
+        smcEventoEstado[smcSlot] := SMCAtivo;
+        smcEventoLo[smcSlot] := inferioresFVG[saidaFVG];
+        smcEventoHi[smcSlot] := superioresFVG[saidaFVG];
+        smcEventoBrutoLo[smcSlot] := inferioresFVG[saidaFVG];
+        smcEventoBrutoHi[smcSlot] := superioresFVG[saidaFVG];
+        smcContador := smcContador + 1;
+      end;
     end;
     quantidadesFVG[quadroFVG] := totalFVG;
     carimbosFVG[quadroFVG] := CurrentBar + 1;
 
-    if LastBarOnChart then
+    if exibeFVG and LastBarOnChart then
     begin
       visiveisFVG := totalFVG;
       if visiveisFVG > LimiteFaixasFVG then
@@ -1211,4 +1775,1732 @@ begin
           CalcDate(diaBreaker, 1), 0, alturaBreaker);
     end;
   end;
+
+  if smcColeta then
+  begin
+    smcLotes[smcQuadro] := smcContador;
+    smcCarimbos[smcQuadro] := CurrentBar + 1;
+  end;
+
+  // t+1 fecha o lote de t. LastBarOnChart tambem vale durante a formacao.
+  if smcCalcula and (CurrentBar > 0) and (CurrentBar - 1 > smcUltimaPublicacao) then
+  begin
+    smcBarra := CurrentBar - 1;
+    smcQuadro := Mod(smcBarra, 2);
+    smcLoteAusente := (smcCarimbos[smcQuadro] <> CurrentBar)
+      or (smcUltimaPublicacao <> CurrentBar - 2);
+    if not smcLoteAusente then
+    begin
+      smcOrigemPublicada := smcBarra;
+      smcUltimaPublicacao := smcBarra;
+      smcPrimeiro := smcQuadro * SMCLote;
+      smcUltimo := smcPrimeiro + smcLotes[smcQuadro] - 1;
+      smcDataConfirmada := dataCandle[1];
+      smcHoraConfirmada := horaCandle[1];
+      smcTick := MinPriceIncrement;
+      smcBarraValida := smcConfigValida and (smcTick > 0) and (High[1] >= Low[1])
+        and (High[1] >= Max(Open[1], Close[1])) and (Low[1] <= Min(Open[1], Close[1]));
+      if smcBarraValida then
+      begin
+        smcBarrasValidas := smcBarrasValidas + 1;
+        smcFechamentoTicks := Round(Close[1] / smcTick);
+        smcTR := High[1] - Low[1];
+        if smcTemAnterior and (CurrentBar > 1) then
+        begin
+          smcAnteriorTicks := Round(Close[2] / smcTick);
+          smcTR := Max(smcTR, Max(Abs(High[1] - Close[2]), Abs(Low[1] - Close[2])));
+        end;
+        if smcAmostrasATR < PeriodoATRSMC then
+        begin
+          smcAmostrasATR := smcAmostrasATR + 1;
+          smcSomaTR := smcSomaTR + smcTR;
+          if smcAmostrasATR = PeriodoATRSMC then
+            smcATR := smcSomaTR / PeriodoATRSMC;
+        end
+        else
+          smcATR := ((PeriodoATRSMC - 1) * smcATR + smcTR) / PeriodoATRSMC;
+        smcATRDisponivel := smcAmostrasATR = PeriodoATRSMC;
+      end
+      else
+      begin
+        smcBarrasValidas := 0;
+        smcAmostrasATR := 0;
+        smcSomaTR := 0;
+        smcATR := 0;
+        smcATRDisponivel := False;
+      end;
+
+      for smcLado := 1 to 4 do
+      begin
+        smcPivoNaBarra[smcLado] := -1;
+        smcBreakNaBarra[smcLado] := -1;
+        if flipCalcula then
+        begin
+          flipPivoAdmitido[smcLado] := -1;
+          flipPublicadoSlot[smcLado] := -1;
+          flipAlvoContinuacao[smcLado] := -1;
+        end;
+      end;
+      if smcUltimo >= smcPrimeiro then
+        for smcIndice := smcPrimeiro to smcUltimo do
+        begin
+          smcFaixa := smcEventoFaixa[smcIndice];
+          smcEventoQualificacao[smcIndice] := 0;
+          smcEventoBarraQualificacao[smcIndice] := -1;
+          if smcFaixa <= 4 then
+          begin
+            smcPivoNaBarra[smcFaixa] := smcIndice;
+            smcEventoRef[smcIndice] := smcPivoConfirmado[smcFaixa];
+          end
+          else if smcFaixa <= 8 then
+          begin
+            smcLado := smcFaixa - 4;
+            smcBreakNaBarra[smcLado] := smcIndice;
+            smcEventoRef[smcIndice] := smcPivoConfirmado[smcLado];
+            if smcPivoNaBarra[smcLado] >= 0 then
+              smcEventoRef[smcIndice] := smcBarra;
+          end;
+        end;
+
+      // Consultar o historico anterior a t. Pivos de t entram depois das rupturas.
+      for smcEscala := 0 to 1 do
+      begin
+        smcAntigoFluxo := smcFluxo[smcEscala];
+        smcMotivoFluxo := 0;
+        smcHistBase := smcEscala * SMCHistPivos;
+        smcHistQtd := smcHistTotal[smcEscala];
+        if not smcBarraValida then
+          smcMotivoFluxo := SMCDadosInvalidos
+        else if smcAntigoFluxo = SMCTransicao then
+        begin
+          if smcTemExtremoTransicao[smcEscala] then
+          begin
+            smcNivelTicks := Round(smcExtremoTransicao[smcEscala] / smcTick);
+            if (smcFechamentoTicks - smcNivelTicks) * smcDirecaoTransicao[smcEscala] > 0 then
+            begin
+              smcFluxo[smcEscala] := 0;
+              smcContexto[smcEscala] := smcContexto[smcEscala] + 1;
+              smcMotivoFluxo := SMCRetornoExtremo;
+            end;
+          end;
+        end
+        else if smcProtecaoConfirmacao[smcEscala] >= 0 then
+        begin
+          smcNivelTicks := Round(smcProtecaoPreco[smcEscala] / smcTick);
+          if (smcFechamentoTicks - smcNivelTicks) * smcAntigoFluxo < 0 then
+          begin
+            smcFluxo[smcEscala] := SMCTransicao;
+            smcDirecaoTransicao[smcEscala] := smcAntigoFluxo;
+            smcDesdeTransicao[smcEscala] := smcBarra;
+            smcContexto[smcEscala] := smcContexto[smcEscala] + 1;
+            smcMotivoFluxo := SMCPerdaProtecao;
+            smcProtecaoConfirmacao[smcEscala] := -1;
+            smcTemExtremoTransicao[smcEscala] := False;
+            if smcHistQtd > 0 then
+            begin
+              smcPosicao := smcHistInicio[smcEscala] + smcHistQtd - 1;
+              smcHistPos := smcHistBase + Mod(smcPosicao, SMCHistPivos);
+              if (smcHistLado[smcHistPos] <> smcAntigoFluxo) and (smcHistQtd > 1) then
+                smcHistPos := smcHistBase + Mod(smcPosicao - 1, SMCHistPivos);
+              if smcHistLado[smcHistPos] = smcAntigoFluxo then
+              begin
+                smcTemExtremoTransicao[smcEscala] := True;
+                smcExtremoTransicao[smcEscala] := smcHistPreco[smcHistPos];
+              end;
+            end;
+          end;
+        end;
+        for smcLado := smcEscala * 2 + 1 to smcEscala * 2 + 2 do
+        begin
+          smcDirecao := 1;
+          if Mod(smcLado, 2) = 0 then
+            smcDirecao := -1;
+          smcQuebra := smcEspera[smcLado];
+          smcResultado := 0;
+          if smcQuebra >= 0 then
+          begin
+            if not smcBarraValida then
+              smcResultado := SMCDadosInvalidos
+            else if smcPivoNaBarra[smcLado] >= 0 then
+              smcResultado := SMCAlvoSubstituido
+            else if smcEsperaContexto[smcLado] <> smcContexto[smcEscala] then
+              smcResultado := SMCContextoPerdido
+            else
+            begin
+              smcNivelTicks := Round(smcEventoLo[smcQuebra] / smcTick);
+              smcDistanciaTicks := (smcFechamentoTicks - smcNivelTicks) * smcDirecao;
+              if smcDistanciaTicks <= 0 then
+                smcResultado := SMCCancelado
+              else if (smcBarra - smcEventoNascimento[smcQuebra] <= SMCPrazoRuptura)
+                and (smcDistanciaTicks >= BufferRupturaSMCTicks) then
+                smcResultado := SMCQualificado
+              else if smcBarra - smcEventoNascimento[smcQuebra] >= SMCPrazoRuptura then
+                smcResultado := SMCExpirado;
+            end;
+            if smcResultado <> 0 then
+            begin
+              smcEventoQualificacao[smcQuebra] := smcResultado;
+              smcEventoBarraQualificacao[smcQuebra] := smcBarra;
+              smcEspera[smcLado] := -1;
+            end;
+          end;
+
+          if smcBreakNaBarra[smcLado] >= 0 then
+          begin
+            smcQuebra := smcBreakNaBarra[smcLado];
+            smcQuebraRef := smcEventoRef[smcQuebra];
+            if (smcQuebraRef < 0) or (smcQuebraRef >= smcBarra) then
+              smcResultado := SMCTargetNotPreknown
+            else if not (smcBarraValida and smcTemAnterior and smcPivoValido[smcLado]) then
+              smcResultado := SMCDadosInvalidos
+            else
+            begin
+              smcNivelTicks := Round(smcEventoLo[smcQuebra] / smcTick);
+              smcDistanciaTicks := (smcFechamentoTicks - smcNivelTicks) * smcDirecao;
+              smcCruzamentoValido := ((smcAnteriorTicks - smcNivelTicks) * smcDirecao <= 0)
+                and (smcDistanciaTicks > 0);
+              smcResultado := SMCSemCruzamento;
+              if smcCruzamentoValido then
+              begin
+                if smcDistanciaTicks >= BufferRupturaSMCTicks then
+                  smcResultado := SMCQualificado
+                else
+                begin
+                  smcResultado := SMCAguardando;
+                  smcEspera[smcLado] := smcQuebra;
+                  smcEsperaContexto[smcLado] := smcContexto[smcEscala];
+                end;
+              end;
+            end;
+            smcEventoQualificacao[smcQuebra] := smcResultado;
+            if smcResultado <> SMCAguardando then
+              smcEventoBarraQualificacao[smcQuebra] := smcBarra;
+          end;
+
+          // Uma ruptura causal usa somente contexto disponivel antes da barra.
+          if smcResultado = SMCQualificado then
+          begin
+            smcQuebraOrigem := smcEventoOrigem[smcQuebra];
+            smcMudaFluxo := False;
+            smcAlvo := -1;
+            smcHistOposto := -1;
+            // Em um historico alternado, os dois ultimos representam os dois lados.
+            if smcHistQtd > 0 then
+            begin
+              smcHistRecente := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 1, SMCHistPivos);
+              smcHistSegundo := -1;
+              if smcHistQtd > 1 then
+                smcHistSegundo := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 2, SMCHistPivos);
+              if smcHistLado[smcHistRecente] = smcDirecao then
+              begin
+                smcAlvo := smcHistRecente;
+                smcHistOposto := smcHistSegundo;
+              end
+              else
+              begin
+                smcAlvo := smcHistSegundo;
+                smcHistOposto := smcHistRecente;
+              end;
+              if smcAlvo >= 0 then
+                if smcHistConfirmacao[smcAlvo] <> smcEventoRef[smcQuebra] then
+                  smcAlvo := -1;
+            end;
+            if (smcAlvo >= 0) and (smcFluxo[smcEscala] = 0) and (smcHistQtd >= 4) then
+            begin
+              smcHistTerceiro := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 3, SMCHistPivos);
+              smcHistQuarto := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 4, SMCHistPivos);
+              smcCoerente :=
+                ((Round(smcHistPreco[smcHistRecente] / smcTick) - Round(smcHistPreco[smcHistTerceiro] / smcTick))
+                  * smcDirecao > ToleranciaSMCTicks)
+                and ((Round(smcHistPreco[smcHistSegundo] / smcTick) - Round(smcHistPreco[smcHistQuarto] / smcTick))
+                  * smcDirecao > ToleranciaSMCTicks);
+              smcMudaFluxo := smcCoerente;
+            end
+            else if (smcAlvo >= 0) and (smcFluxo[smcEscala] = SMCTransicao)
+              and (smcDirecao = -smcDirecaoTransicao[smcEscala])
+              and (smcQuebraOrigem > smcDesdeTransicao[smcEscala]) and (smcHistOposto >= 0) then
+              smcMudaFluxo := smcHistOrigem[smcHistOposto] > smcQuebraOrigem;
+
+            if smcMudaFluxo then
+            begin
+              smcFluxo[smcEscala] := smcDirecao;
+              smcContexto[smcEscala] := smcContexto[smcEscala] + 1;
+            end;
+
+            if (smcAlvo >= 0) and (smcFluxo[smcEscala] = smcDirecao) and
+              (smcMudaFluxo or (smcEventoBrutoLo[smcQuebra] <> -smcDirecao)) then
+            begin
+              smcProtecaoConfirmacao[smcEscala] := -1;
+              if smcHistOposto >= 0 then
+                if smcHistOrigem[smcHistOposto] > smcQuebraOrigem then
+                begin
+                  smcProtecaoConfirmacao[smcEscala] := smcHistConfirmacao[smcHistOposto];
+                  smcProtecaoOrigem[smcEscala] := smcHistOrigem[smcHistOposto];
+                  smcProtecaoPreco[smcEscala] := smcHistPreco[smcHistOposto];
+                end;
+              if (smcProtecaoConfirmacao[smcEscala] < 0) and (smcMotivoFluxo = 0) then
+                smcMotivoFluxo := SMCProtecaoIncerta;
+            end;
+            if flipCalcula and (smcAlvo >= 0) and (smcHistOposto >= 0) then
+              if smcHistOrigem[smcHistOposto] > smcQuebraOrigem then
+                flipAlvoContinuacao[smcLado] := smcQuebraOrigem;
+          end;
+        end;
+        if flipCalcula then
+        begin
+          flipFluxoAnterior[smcEscala] := smcAntigoFluxo;
+          flipPerdaProtecao[smcEscala] := 0;
+          flipPivoAmbiguo[smcEscala] := False;
+          if smcMotivoFluxo = SMCPerdaProtecao then
+            flipPerdaProtecao[smcEscala] := -smcAntigoFluxo;
+        end;
+        // O snapshot sempre pertence ao fechamento, inclusive se continuar neutro.
+        smcUltimo := smcUltimo + 1;
+        smcEventoFaixa[smcUltimo] := 18 + smcEscala;
+        smcEventoNascimento[smcUltimo] := smcBarra;
+        smcEventoRef[smcUltimo] := smcProtecaoConfirmacao[smcEscala];
+        smcEventoOrigem[smcUltimo] := -1;
+        smcEventoLo[smcUltimo] := 0;
+        smcEventoHi[smcUltimo] := 0;
+        if smcProtecaoConfirmacao[smcEscala] >= 0 then
+        begin
+          smcEventoOrigem[smcUltimo] := smcProtecaoOrigem[smcEscala];
+          smcEventoLo[smcUltimo] := smcProtecaoPreco[smcEscala];
+        end;
+        if (smcFluxo[smcEscala] = SMCTransicao) and smcTemExtremoTransicao[smcEscala] then
+          smcEventoHi[smcUltimo] := smcExtremoTransicao[smcEscala];
+        smcEventoBrutoLo[smcUltimo] := smcAntigoFluxo;
+        smcEventoBrutoHi[smcUltimo] := smcFluxo[smcEscala];
+        smcEventoEstado[smcUltimo] := SMCFato;
+        smcEventoQualificacao[smcUltimo] := smcMotivoFluxo;
+        smcEventoBarraQualificacao[smcUltimo] := smcBarra;
+      end;
+
+      // A camada auxiliar retém apenas o extremo mais forte de uma sequência
+      // do mesmo lado. Os registros completos dos pivôs legados não mudam.
+      for smcLado := 1 to 4 do
+        if smcPivoNaBarra[smcLado] >= 0 then
+        begin
+          smcSlot := smcPivoNaBarra[smcLado];
+          smcPivoConfirmado[smcLado] := smcBarra;
+          smcPivoValido[smcLado] := smcBarrasValidas >= CurrentBar - smcEventoOrigem[smcSlot];
+          if not smcPivoValido[smcLado] then
+            smcEventoQualificacao[smcSlot] := SMCDadosInvalidos
+          else
+          begin
+            smcDirecao := 1;
+            smcEscala := 0;
+            if Mod(smcLado, 2) = 0 then
+              smcDirecao := -1;
+            if smcLado > 2 then
+              smcEscala := 1;
+            smcHistBase := smcEscala * SMCHistPivos;
+            smcHistQtd := smcHistTotal[smcEscala];
+            smcOrigem := smcEventoOrigem[smcSlot];
+            smcNivelTicks := Round(smcEventoLo[smcSlot] / smcTick);
+            smcRegistraPivo := True;
+            smcHistUltimo := -1;
+            smcHistPos := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd, SMCHistPivos);
+            if smcHistQtd > 0 then
+            begin
+              smcHistUltimo := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 1, SMCHistPivos);
+              if (smcOrigem < smcHistOrigem[smcHistUltimo]) or
+                ((smcOrigem = smcHistOrigem[smcHistUltimo]) and (smcHistLado[smcHistUltimo] <> smcDirecao)) then
+              begin
+                smcRegistraPivo := False;
+                smcEventoQualificacao[smcSlot] := SMCAmbiguo;
+                if smcOrigem = smcHistOrigem[smcHistUltimo] then
+                begin
+                  smcHistTotal[smcEscala] := smcHistQtd - 1;
+                  if flipCalcula then
+                    flipPivoAmbiguo[smcEscala] := True;
+                end;
+              end
+              else if smcHistLado[smcHistUltimo] = smcDirecao then
+              begin
+                smcHistPos := smcHistUltimo;
+                smcRegistraPivo := (smcNivelTicks - Round(smcHistPreco[smcHistUltimo] / smcTick)) * smcDirecao >= 0;
+              end;
+            end;
+            if smcRegistraPivo then
+            begin
+              smcHistSegundo := -1;
+              if smcHistPos = smcHistUltimo then
+              begin
+                if smcHistQtd >= 3 then
+                  smcHistSegundo := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 3, SMCHistPivos);
+              end
+              else if smcHistQtd >= 2 then
+                smcHistSegundo := smcHistBase + Mod(smcHistInicio[smcEscala] + smcHistQtd - 2, SMCHistPivos);
+              if smcHistSegundo >= 0 then
+              begin
+                smcDistanciaTicks := smcNivelTicks - Round(smcHistPreco[smcHistSegundo] / smcTick);
+                smcEventoQualificacao[smcSlot] := SMCIgual;
+                if smcDistanciaTicks > ToleranciaSMCTicks then
+                begin
+                  if smcDirecao = 1 then
+                    smcEventoQualificacao[smcSlot] := SMCHH
+                  else
+                    smcEventoQualificacao[smcSlot] := SMCHL;
+                end
+                else if smcDistanciaTicks < -ToleranciaSMCTicks then
+                begin
+                  if smcDirecao = 1 then
+                    smcEventoQualificacao[smcSlot] := SMCLH
+                  else
+                    smcEventoQualificacao[smcSlot] := SMCLL;
+                end;
+              end;
+              smcHistOrigem[smcHistPos] := smcOrigem;
+              smcHistConfirmacao[smcHistPos] := smcBarra;
+              smcHistLado[smcHistPos] := smcDirecao;
+              smcHistPreco[smcHistPos] := smcEventoLo[smcSlot];
+              if flipCalcula then
+                flipPivoAdmitido[smcLado] := smcHistPos;
+              if smcHistPos <> smcHistUltimo then
+              begin
+                if smcHistQtd < SMCHistPivos then
+                  smcHistTotal[smcEscala] := smcHistQtd + 1
+                else
+                  smcHistInicio[smcEscala] := Mod(smcHistInicio[smcEscala] + 1, SMCHistPivos);
+              end;
+            end;
+          end;
+        end;
+
+      // Particoes por familia, escala e lado. A identidade de um OB/FVG e
+      // preservada na saida; o lote tambem guarda o fato de remocao de t.
+      smcLotes[smcQuadro] := smcUltimo - smcPrimeiro + 1;
+      smcMaiorLote := Max(smcMaiorLote, smcLotes[smcQuadro]);
+      for smcIndice := smcPrimeiro to smcUltimo do
+      begin
+        smcEventoConfirmacao[smcIndice] := smcBarra;
+        smcEventoPublicacao[smcIndice] := CurrentBar;
+        smcEventoData[smcIndice] := smcDataConfirmada;
+        smcEventoHora[smcIndice] := smcHoraConfirmada;
+        smcEventoATR[smcIndice] := smcATR;
+        smcEventoATRValido[smcIndice] := smcATRDisponivel;
+        smcEventoDataOrigem[smcIndice] := 0;
+        smcEventoHoraOrigem[smcIndice] := 0;
+        smcEventoTerminal[smcIndice] := -1;
+        smcEventoDataTerminal[smcIndice] := 0;
+        smcEventoHoraTerminal[smcIndice] := 0;
+        if smcEventoEstado[smcIndice] <> SMCAtivo then
+        begin
+          smcEventoTerminal[smcIndice] := smcBarra;
+          smcEventoDataTerminal[smcIndice] := smcDataConfirmada;
+          smcEventoHoraTerminal[smcIndice] := smcHoraConfirmada;
+        end;
+        if smcEventoOrigem[smcIndice] >= 0 then
+        begin
+          smcDeslocamento := CurrentBar - smcEventoOrigem[smcIndice];
+          smcEventoDataOrigem[smcIndice] := dataCandle[smcDeslocamento];
+          smcEventoHoraOrigem[smcIndice] := horaCandle[smcDeslocamento];
+        end;
+
+        smcFaixa := smcEventoFaixa[smcIndice];
+        smcEventoDadosValidos[smcIndice] := smcBarraValida;
+        if smcFaixa <= 8 then
+          smcEventoDadosValidos[smcIndice] := smcBarraValida
+            and (smcEventoQualificacao[smcIndice] <> SMCDadosInvalidos)
+        else if (smcFaixa <= 16) and (smcEventoNascimento[smcIndice] = smcBarra)
+          and (smcEventoRef[smcIndice] >= 0) then
+          smcEventoDadosValidos[smcIndice] := smcBarrasValidas >= CurrentBar - smcEventoRef[smcIndice];
+        smcInicioFaixa := SMCBaseHistorico + (smcFaixa - 1) * SMCCapacidade;
+        smcFimFaixa := smcInicioFaixa + smcUsados[smcFaixa] - 1;
+        smcAchado := -1;
+        smcTerminal := -1;
+        if (smcFaixa >= 18) and (smcUsados[smcFaixa] = SMCCapacidade) then
+          smcTerminal := smcInicioFaixa + Mod(smcBarra, SMCCapacidade)
+        else if (smcFimFaixa >= smcInicioFaixa) and ((smcUsados[smcFaixa] = SMCCapacidade)
+          or (smcEventoEstado[smcIndice] = SMCMitigado) or (smcEventoEstado[smcIndice] = SMCDescarte)) then
+          for smcDestino := smcInicioFaixa to smcFimFaixa do
+          begin
+            if (smcFaixa >= 9) and (smcFaixa <= 14)
+              and ((smcEventoEstado[smcIndice] = SMCMitigado) or (smcEventoEstado[smcIndice] = SMCDescarte))
+              and (smcEventoNascimento[smcDestino] = smcEventoNascimento[smcIndice]) then
+              smcAchado := smcDestino;
+            if (smcUsados[smcFaixa] = SMCCapacidade)
+              and (smcEventoEstado[smcDestino] <> SMCAtivo)
+              and (smcEventoQualificacao[smcDestino] <> SMCAguardando) then
+            begin
+              if smcTerminal < 0 then
+                smcTerminal := smcDestino
+              else if (Max(smcEventoTerminal[smcDestino], smcEventoBarraQualificacao[smcDestino])
+                  < Max(smcEventoTerminal[smcTerminal], smcEventoBarraQualificacao[smcTerminal]))
+                or ((Max(smcEventoTerminal[smcDestino], smcEventoBarraQualificacao[smcDestino])
+                    = Max(smcEventoTerminal[smcTerminal], smcEventoBarraQualificacao[smcTerminal]))
+                  and (smcEventoNascimento[smcDestino] < smcEventoNascimento[smcTerminal])) then
+                smcTerminal := smcDestino;
+            end;
+          end;
+
+        if smcAchado >= 0 then
+        begin
+          smcEventoEstado[smcAchado] := smcEventoEstado[smcIndice];
+          smcEventoTerminal[smcAchado] := smcBarra;
+          smcEventoDataTerminal[smcAchado] := smcDataConfirmada;
+          smcEventoHoraTerminal[smcAchado] := smcHoraConfirmada;
+        end
+        else
+        begin
+          smcDestino := smcTerminal;
+          if smcUsados[smcFaixa] < SMCCapacidade then
+          begin
+            smcDestino := smcFimFaixa + 1;
+            smcUsados[smcFaixa] := smcUsados[smcFaixa] + 1;
+          end
+          else if smcDestino >= 0 then
+            smcReciclados := smcReciclados + 1;
+
+          if smcDestino >= 0 then
+          begin
+              smcEventoFaixa[smcDestino] := smcEventoFaixa[smcIndice];
+              smcEventoOrigem[smcDestino] := smcEventoOrigem[smcIndice];
+              smcEventoRef[smcDestino] := smcEventoRef[smcIndice];
+              smcEventoNascimento[smcDestino] := smcEventoNascimento[smcIndice];
+              smcEventoEstado[smcDestino] := smcEventoEstado[smcIndice];
+              smcEventoConfirmacao[smcDestino] := smcEventoConfirmacao[smcIndice];
+              smcEventoPublicacao[smcDestino] := smcEventoPublicacao[smcIndice];
+              smcEventoData[smcDestino] := smcEventoData[smcIndice];
+              smcEventoHora[smcDestino] := smcEventoHora[smcIndice];
+              smcEventoDataOrigem[smcDestino] := smcEventoDataOrigem[smcIndice];
+              smcEventoHoraOrigem[smcDestino] := smcEventoHoraOrigem[smcIndice];
+              smcEventoTerminal[smcDestino] := smcEventoTerminal[smcIndice];
+              smcEventoDataTerminal[smcDestino] := smcEventoDataTerminal[smcIndice];
+              smcEventoHoraTerminal[smcDestino] := smcEventoHoraTerminal[smcIndice];
+              smcEventoQualificacao[smcDestino] := smcEventoQualificacao[smcIndice];
+              smcEventoBarraQualificacao[smcDestino] := smcEventoBarraQualificacao[smcIndice];
+              smcEventoLo[smcDestino] := smcEventoLo[smcIndice];
+              smcEventoHi[smcDestino] := smcEventoHi[smcIndice];
+              smcEventoBrutoLo[smcDestino] := smcEventoBrutoLo[smcIndice];
+              smcEventoBrutoHi[smcDestino] := smcEventoBrutoHi[smcIndice];
+              smcEventoATR[smcDestino] := smcEventoATR[smcIndice];
+              smcEventoATRValido[smcDestino] := smcEventoATRValido[smcIndice];
+              smcEventoDadosValidos[smcDestino] := smcEventoDadosValidos[smcIndice];
+          end
+          else
+          begin
+            smcEventoQualificacao[smcIndice] := SMCCapacityFull;
+            smcRejeitadosCapacidade := smcRejeitadosCapacidade + 1;
+          end;
+          if (smcFaixa >= 5) and (smcFaixa <= 8) then
+          begin
+            smcLado := smcFaixa - 4;
+            if smcEspera[smcLado] = smcIndice then
+              smcEspera[smcLado] := smcDestino;
+          end;
+        end;
+        smcPublicados := smcPublicados + 1;
+      end;
+
+      // 09A: avaliar o nivel congelado antes de consumir os pivos deste lote.
+      if flipCalcula then
+        for flipLado := 1 to 4 do
+        begin
+          flipEscala := 0;
+          if flipLado > 2 then
+            flipEscala := 1;
+          if (EscalaFlip = 2) or (EscalaFlip = flipEscala) then
+          begin
+            flipDirecao := 1;
+            flipReacaoLado := flipLado + 1;
+            if Mod(flipLado, 2) = 0 then
+            begin
+              flipDirecao := -1;
+              flipReacaoLado := flipLado - 1;
+            end;
+            flipBase := (flipLado - 1) * FlipCapacidade;
+
+            // Estados posteriores nao alteram os pivos nem a geometria do Flip.
+            flipTerminal := -1;
+            if flipUsados[flipLado] > 0 then
+              for flipIndice := flipBase to flipBase + flipUsados[flipLado] - 1 do
+              begin
+                if smcBarraValida and (flipEventoFalha[flipIndice] < 0) then
+                begin
+                  flipExtremoTicks := Round(flipEventoExtremoPreco[flipIndice] / smcTick);
+                  if (smcFechamentoTicks - flipExtremoTicks) * flipDirecao < 0 then
+                    flipEventoFalha[flipIndice] := smcBarra
+                  else if (flipEventoContinuacao[flipIndice] < 0)
+                    and (flipAlvoContinuacao[flipLado] > flipEventoConfirmacao[flipIndice]) then
+                    flipEventoContinuacao[flipIndice] := smcBarra;
+                end;
+                if flipEventoFalha[flipIndice] >= 0 then
+                begin
+                  if flipTerminal < 0 then
+                    flipTerminal := flipIndice
+                  else if (flipEventoFalha[flipIndice] < flipEventoFalha[flipTerminal])
+                    or ((flipEventoFalha[flipIndice] = flipEventoFalha[flipTerminal])
+                    and (flipEventoConfirmacao[flipIndice] < flipEventoConfirmacao[flipTerminal])) then
+                    flipTerminal := flipIndice;
+                end;
+              end;
+
+            flipConfirmar := False;
+            if flipFase[flipLado] <> 0 then
+            begin
+              flipSaida := 0;
+              if not smcBarraValida then
+                flipSaida := FlipDadosInvalidos
+              else if flipPivoAmbiguo[flipEscala] then
+                flipSaida := FlipOrdemAmbigua
+              else if (MaxBarrasFlip > 0) and (smcBarra - flipMeioRef[flipLado] > MaxBarrasFlip) then
+                flipSaida := FlipPrazoExcedido
+              else
+              begin
+                flipMeioTicks := Round(flipMeioPreco[flipLado] / smcTick);
+                flipExtremoTicks := Round(flipExtremoPreco[flipLado] / smcTick);
+                flipDistancia := (smcFechamentoTicks - flipMeioTicks) * flipDirecao;
+                if (Round(High[1] / smcTick) > Max(flipMeioTicks, flipExtremoTicks))
+                  and (Round(Low[1] / smcTick) < Min(flipMeioTicks, flipExtremoTicks)) then
+                  flipSaida := FlipOrdemAmbigua
+                else if (smcFechamentoTicks - flipExtremoTicks) * flipDirecao < 0 then
+                  flipSaida := FlipExtremoRompido
+                else if flipFase[flipLado] = FlipAguardaReacao then
+                begin
+                  if flipDistancia > 0 then
+                    flipSaida := FlipPerdaPrecoce;
+                end
+                else if flipCruzaEm[flipLado] >= 0 then
+                begin
+                  if flipDistancia <= 0 then
+                    flipSaida := FlipRetornouNivel
+                  else if flipDistancia >= BufferRupturaSMCTicks then
+                    flipConfirmar := True;
+                end
+                else if smcTemAnterior and (flipDistancia > 0) then
+                begin
+                  flipDistanciaAnterior := (smcAnteriorTicks - flipMeioTicks) * flipDirecao;
+                  if flipDistanciaAnterior <= 0 then
+                  begin
+                    flipGap := ((flipDirecao = 1) and (Round(Low[1] / smcTick) > flipMeioTicks))
+                      or ((flipDirecao = -1) and (Round(High[1] / smcTick) < flipMeioTicks));
+                    if flipGap and (not PermitirGapFlip) then
+                      flipSaida := FlipGapBloqueado
+                    else
+                    begin
+                      flipCruzaEm[flipLado] := smcBarra;
+                      flipConfirmar := flipDistancia >= BufferRupturaSMCTicks;
+                    end;
+                  end;
+                end;
+              end;
+
+              if (flipSaida = 0) and (flipCruzaEm[flipLado] >= 0) and (flipLegadoEm[flipLado] < 0) then
+              begin
+                flipQuebraLegada := smcBreakNaBarra[flipLado];
+                if flipQuebraLegada >= 0 then
+                  if smcEventoRef[flipQuebraLegada] = flipMeioRef[flipLado] then
+                  begin
+                    flipLegadoEm[flipLado] := smcBarra;
+                    flipLegadoTipo[flipLado] := 1;
+                    if smcEventoBrutoLo[flipQuebraLegada] = -flipDirecao then
+                      flipLegadoTipo[flipLado] := 2;
+                  end;
+              end;
+
+              if flipConfirmar then
+              begin
+                flipDestino := flipTerminal;
+                if flipUsados[flipLado] < FlipCapacidade then
+                begin
+                  flipDestino := flipBase + flipUsados[flipLado];
+                  flipUsados[flipLado] := flipUsados[flipLado] + 1;
+                end;
+                flipSaida := FlipSemVaga;
+                if flipDestino < 0 then
+                  flipSemVagaTotal := flipSemVagaTotal + 1
+                else
+                begin
+                  flipEventoExtremo[flipDestino] := flipExtremoRef[flipLado];
+                  flipEventoMeio[flipDestino] := flipMeioRef[flipLado];
+                  flipEventoReacao[flipDestino] := flipReacaoRef[flipLado];
+                  flipEventoOrigemExtremo[flipDestino] := flipExtremoOrigem[flipLado];
+                  flipEventoOrigemMeio[flipDestino] := flipMeioOrigem[flipLado];
+                  flipEventoOrigemReacao[flipDestino] := flipReacaoOrigem[flipLado];
+                  flipEventoCruzamento[flipDestino] := flipCruzaEm[flipLado];
+                  flipEventoConfirmacao[flipDestino] := smcBarra;
+                  flipEventoPublicacao[flipDestino] := CurrentBar;
+                  flipEventoData[flipDestino] := smcDataConfirmada;
+                  flipEventoHora[flipDestino] := smcHoraConfirmada;
+                  flipEventoDataMeio[flipDestino] := flipMeioDia[flipLado];
+                  flipEventoHoraMeio[flipDestino] := flipMeioHora[flipLado];
+                  flipEventoContexto[flipDestino] := 0;
+                  if (flipEscala = 0) and (Abs(flipFluxoAnterior[1]) = 1) then
+                    flipEventoContexto[flipDestino] := flipFluxoAnterior[1] * flipDirecao;
+                  flipEventoReversao[flipDestino] := (flipEscala = 1) and (flipPerdaProtecao[1] = flipDirecao);
+                  flipEventoLegado[flipDestino] := flipLegadoEm[flipLado];
+                  flipEventoTipoLegado[flipDestino] := flipLegadoTipo[flipLado];
+                  flipEventoContinuacao[flipDestino] := -1;
+                  flipEventoFalha[flipDestino] := -1;
+                  flipEventoNivel[flipDestino] := flipMeioPreco[flipLado];
+                  flipEventoExtremoPreco[flipDestino] := flipExtremoPreco[flipLado];
+                  flipEventoReacaoPreco[flipDestino] := flipReacaoPreco[flipLado];
+                  flipEventoATRMeio[flipDestino] := flipATRMeio[flipLado];
+                  flipPublicadoSlot[flipLado] := flipDestino;
+                  flipTotal := flipTotal + 1;
+                  flipSaida := FlipConfirmado;
+                end;
+              end;
+
+              if flipSaida <> 0 then
+              begin
+                flipFase[flipLado] := 0;
+                flipMotivo[flipLado] := flipSaida;
+                flipBarraMotivo[flipLado] := smcBarra;
+              end;
+            end;
+
+            if smcBarraValida and (not flipPivoAmbiguo[flipEscala]) and (flipFase[flipLado] <> FlipArmado) then
+            begin
+              flipNovoPivo := flipPivoAdmitido[flipLado];
+              if (flipNovoPivo >= 0) and (smcHistTotal[flipEscala] >= 2) then
+              begin
+                // L1/H1 acabou de entrar no historico; o pivo anterior e H0/L0.
+                flipFase[flipLado] := 0;
+                if flipFluxoAnterior[flipEscala] = -flipDirecao then
+                begin
+                  flipPivoAnterior := flipEscala * SMCHistPivos
+                    + Mod(smcHistInicio[flipEscala] + smcHistTotal[flipEscala] - 2, SMCHistPivos);
+                  flipBarraMotivo[flipLado] := smcBarra;
+                  if (ReacaoMinFlipATR > 0) and (not smcATRDisponivel) then
+                    flipMotivo[flipLado] := FlipATRIndisponivel
+                  else if (smcFechamentoTicks - Round(smcHistPreco[flipNovoPivo] / smcTick)) * flipDirecao > 0 then
+                    flipMotivo[flipLado] := FlipPerdaPrecoce
+                  else if (smcHistLado[flipPivoAnterior] = -flipDirecao)
+                    and (smcHistOrigem[flipPivoAnterior] < smcHistOrigem[flipNovoPivo]) then
+                  begin
+                    flipExtremoRef[flipLado] := smcHistConfirmacao[flipPivoAnterior];
+                    flipExtremoOrigem[flipLado] := smcHistOrigem[flipPivoAnterior];
+                    flipExtremoPreco[flipLado] := smcHistPreco[flipPivoAnterior];
+                    flipMeioRef[flipLado] := smcBarra;
+                    flipMeioOrigem[flipLado] := smcHistOrigem[flipNovoPivo];
+                    flipMeioPreco[flipLado] := smcHistPreco[flipNovoPivo];
+                    flipMeioDia[flipLado] := smcDataConfirmada;
+                    flipMeioHora[flipLado] := smcHoraConfirmada;
+                    flipATRMeio[flipLado] := smcATR;
+                    flipCruzaEm[flipLado] := -1;
+                    flipLegadoEm[flipLado] := -1;
+                    flipLegadoTipo[flipLado] := 0;
+                    flipFase[flipLado] := FlipAguardaReacao;
+                    flipMotivo[flipLado] := FlipAguardaReacao;
+                  end;
+                end;
+              end
+              else if flipFase[flipLado] = FlipAguardaReacao then
+              begin
+                flipNovoPivo := flipPivoAdmitido[flipReacaoLado];
+                if (flipNovoPivo >= 0) and (smcHistTotal[flipEscala] >= 2) then
+                begin
+                  flipPivoAnterior := flipEscala * SMCHistPivos
+                    + Mod(smcHistInicio[flipEscala] + smcHistTotal[flipEscala] - 2, SMCHistPivos);
+                  if smcHistConfirmacao[flipPivoAnterior] = flipMeioRef[flipLado] then
+                  begin
+                    flipDistancia := (Round(smcHistPreco[flipNovoPivo] / smcTick)
+                      - Round(flipExtremoPreco[flipLado] / smcTick)) * flipDirecao;
+                    flipMinimo := Max(smcTick, ReacaoMinFlipATR * flipATRMeio[flipLado]);
+                    flipBarraMotivo[flipLado] := smcBarra;
+                    if flipDistancia <= ToleranciaSMCTicks then
+                      flipMotivo[flipLado] := FlipForaTolerancia
+                    else if Abs(Round(smcHistPreco[flipNovoPivo] / smcTick)
+                      - Round(flipMeioPreco[flipLado] / smcTick)) * smcTick < flipMinimo then
+                      flipMotivo[flipLado] := FlipSemReacao
+                    else if (Round(flipMeioPreco[flipLado] / smcTick)
+                      - Round(smcHistPreco[flipNovoPivo] / smcTick)) * flipDirecao > 0 then
+                    begin
+                      flipReacaoRef[flipLado] := smcBarra;
+                      flipReacaoOrigem[flipLado] := smcHistOrigem[flipNovoPivo];
+                      flipReacaoPreco[flipLado] := smcHistPreco[flipNovoPivo];
+                      flipFase[flipLado] := FlipArmado;
+                      flipMotivo[flipLado] := FlipArmado;
+                    end;
+                  end;
+                end;
+              end;
+            end;
+          end;
+        end;
+      if poiCalcula then
+      begin
+        for poiLado := 1 to 4 do
+        begin
+          poiDir := 1;
+          if Mod(poiLado, 2) = 0 then
+            poiDir := -1;
+          poiBase := (poiLado - 1) * FlipCapacidade;
+          if poiUsados[poiLado] > 0 then
+            for poiSlot := poiBase to poiBase + poiUsados[poiLado] - 1 do
+              if (poiFimZona[poiSlot] < 0) and smcBarraValida then
+              begin
+                poiLoTicks := poiLoZona[poiSlot];
+                poiHiTicks := poiHiZona[poiSlot];
+                poiProx := poiHiTicks;
+                poiDist := poiLoTicks;
+                poiPavio := Round(Low[1] / smcTick);
+                poiPavioReacao := Round(High[1] / smcTick);
+                if poiDir = -1 then
+                begin
+                  poiProx := poiLoTicks;
+                  poiDist := poiHiTicks;
+                  poiPavio := Round(High[1] / smcTick);
+                  poiPavioReacao := Round(Low[1] / smcTick);
+                end;
+                poiAvanco := (smcFechamentoTicks - poiProx) * poiDir;
+                poiDentro := ((poiPavio - poiProx) * poiDir <= 0)
+                  and ((poiPavioReacao - poiDist) * poiDir >= 0);
+                poiPivoAtual := smcFechamentoTicks;
+                if ModoInvalidacaoFlip = 1 then
+                  poiPivoAtual := poiPavio;
+                poiInvalidou := (poiDist - poiPivoAtual) * poiDir >= Max(1, BufferInvalidacaoTicksFlip);
+                poiIdadeExcedida := (MaxIdadeFlip > 0) and (smcBarra - poiAtivacao[poiSlot] > MaxIdadeFlip);
+                poiEncerrou := False;
+                poiTocou := False;
+                if (not poiIdadeExcedida) and (poiEstado[poiSlot] = POIAguardaSaida) then
+                begin
+                  if poiAvanco > 0 then
+                  begin
+                    poiEstado[poiSlot] := POIFresh;
+                    poiAproxima[poiSlot] := True;
+                  end;
+                end
+                else if (not poiIdadeExcedida) and poiDentro then
+                begin
+                  poiTocou := poiVisita[poiSlot] or poiAproxima[poiSlot];
+                  if poiTocou then
+                  begin
+                    if not poiVisita[poiSlot] then
+                      poiVisitas[poiSlot] := poiVisitas[poiSlot] + 1;
+                    poiVisita[poiSlot] := True;
+                    poiProf := Min(1, (poiProx - poiPavio) * poiDir / (poiHiTicks - poiLoTicks));
+                    poiProfundidade[poiSlot] := Max(poiProfundidade[poiSlot], poiProf);
+                    poiEstado[poiSlot] := POITocada;
+                    if poiProfundidade[poiSlot] >= 1 then
+                      poiEstado[poiSlot] := POIMitigadaTotal
+                    else if poiProfundidade[poiSlot] >= 0.5 then
+                      poiEstado[poiSlot] := POIMitigada50;
+                  end;
+                end
+                else if not poiIdadeExcedida then
+                begin
+                  poiEncerrou := poiVisita[poiSlot] and (MaxVisitasFlip > 0)
+                    and (poiVisitas[poiSlot] >= MaxVisitasFlip);
+                  poiVisita[poiSlot] := False;
+                  poiPrimeiraVisita[poiSlot] := False;
+                  poiAproxima[poiSlot] := (poiPavio - poiProx) * poiDir > 0;
+                end;
+
+                if poiTocou and (poiToque[poiSlot] < 0) then
+                begin
+                  poiToque[poiSlot] := smcBarra;
+                  poiExtremo[poiSlot] := poiPavio;
+                  poiPrimeiraVisita[poiSlot] := True;
+                  poiATRToque[poiSlot] := smcATR;
+                  poiATRToqueValido[poiSlot] := smcATRDisponivel;
+                  if ModoRetesteFlip > 0 then
+                    poiStatusReteste[poiSlot] := POIRetesteAguardando;
+                  if ModoRetesteFlip = 2 then
+                  begin
+                    poiIndicePivo := 1;
+                    if poiDir = -1 then
+                      poiIndicePivo := 2;
+                    if poiPivoDisponivel[poiIndicePivo] and smcTemAnterior
+                      and ((smcFechamentoTicks - poiPivoNivel[poiIndicePivo]) * poiDir <= 0) then
+                    begin
+                      poiAlvo[poiSlot] := poiPivoNivel[poiIndicePivo];
+                      poiAlvoRef[poiSlot] := poiPivoConfirmado[poiIndicePivo];
+                    end;
+                  end;
+                  if ((ModoRetesteFlip > 0) and (ReacaoRetesteATRFlip > 0) and (not smcATRDisponivel))
+                    or ((ModoRetesteFlip = 2) and (poiAlvoRef[poiSlot] < 0)) then
+                    poiStatusReteste[poiSlot] := POIRetesteIndisponivel;
+                end;
+
+                if poiInvalidou then
+                begin
+                  poiEstado[poiSlot] := POIInvalidada;
+                  poiIntersecaoInvalidacao[poiSlot] := poiDentro;
+                end
+                else if poiEncerrou or poiIdadeExcedida then
+                  poiEstado[poiSlot] := POIExpirada
+                else
+                begin
+                  if (poiStatusReteste[poiSlot] = POIRetesteAguardando)
+                    and (smcBarra - poiToque[poiSlot] > MaxBarrasRetesteFlip) then
+                    poiStatusReteste[poiSlot] := POIRetesteExpirado;
+                  if (poiStatusReteste[poiSlot] = POIRetesteAguardando) and (smcBarra > poiToque[poiSlot]) then
+                  begin
+                    if (ModoRetesteFlip = 2) and (poiAlvoRef[poiSlot] >= 0) and (not poiAlvoRompido[poiSlot]) then
+                    begin
+                      poiAvanco := (smcFechamentoTicks - poiAlvo[poiSlot]) * poiDir;
+                      if (poiAvanco <= 0) or (not smcTemAnterior) then
+                        poiCruzouAlvo[poiSlot] := False
+                      else
+                      begin
+                        if (smcAnteriorTicks - poiAlvo[poiSlot]) * poiDir <= 0 then
+                          poiCruzouAlvo[poiSlot] := True;
+                        if poiCruzouAlvo[poiSlot] and (poiAvanco >= Max(1, BufferRupturaSMCTicks)) then
+                          poiAlvoRompido[poiSlot] := True;
+                      end;
+                    end;
+                    poiReagiu := ((ReacaoRetesteATRFlip = 0) or poiATRToqueValido[poiSlot])
+                      and ((poiPavioReacao - poiExtremo[poiSlot]) * poiDir * smcTick
+                        >= Max(smcTick, ReacaoRetesteATRFlip * poiATRToque[poiSlot]))
+                      and ((smcFechamentoTicks - poiProx) * poiDir > 0);
+                    if poiReagiu and ((ModoRetesteFlip = 1) or poiAlvoRompido[poiSlot]) then
+                    begin
+                      poiReteste[poiSlot] := smcBarra;
+                      poiStatusReteste[poiSlot] := POIRetesteConfirmado;
+                    end;
+                  end;
+                  if (EncerrarAposMitigacaoFlip > 0) and (poiProfundidade[poiSlot] * 100 >= EncerrarAposMitigacaoFlip) then
+                    poiEstado[poiSlot] := POIEncerrada;
+                end;
+                if poiTocou and poiPrimeiraVisita[poiSlot] and ((poiPavio - poiExtremo[poiSlot]) * poiDir < 0) then
+                  poiExtremo[poiSlot] := poiPavio;
+                if poiEstado[poiSlot] >= POIInvalidada then
+                begin
+                  if poiStatusReteste[poiSlot] = POIRetesteAguardando then
+                    poiStatusReteste[poiSlot] := POIRetesteEncerrado;
+                  poiFimZona[poiSlot] := smcBarra;
+                  poiDiaFim[poiSlot] := smcDataConfirmada;
+                  poiHoraFim[poiSlot] := smcHoraConfirmada;
+                end;
+              end;
+        end;
+
+        // Só disponibilizar os pivôs internos deste lote depois dos toques.
+        if ModoRetesteFlip = 2 then
+          for poiIndicePivo := 1 to 2 do
+          begin
+            poiDir := 1;
+            if poiIndicePivo = 2 then
+              poiDir := -1;
+            if (not smcBarraValida) or ((smcFechamentoTicks - poiPivoNivel[poiIndicePivo]) * poiDir > 0) then
+              poiPivoDisponivel[poiIndicePivo] := False;
+            poiBarraPivo := smcPivoNaBarra[poiIndicePivo];
+            if (poiBarraPivo >= 0) and smcPivoValido[poiIndicePivo]
+              and (not flipPivoAmbiguo[0]) then
+            begin
+              poiPivoConfirmado[poiIndicePivo] := smcBarra;
+              poiPivoNivel[poiIndicePivo] := Round(smcEventoLo[poiBarraPivo] / smcTick);
+              poiPivoDisponivel[poiIndicePivo] := (smcFechamentoTicks - poiPivoNivel[poiIndicePivo]) * poiDir <= 0;
+            end;
+          end;
+      end;
+
+      // A 09B lê o Flip publicado neste lote. A origem nunca antecipa a ativação.
+      if flipCalcula then
+      begin
+        poiATRBarra := smcATR;
+        poiATRValido := smcATRDisponivel;
+        for poiLado := 1 to 4 do
+        begin
+          poiEvento := flipPublicadoSlot[poiLado];
+          if poiEvento >= 0 then
+          begin
+            flipEventoZonaID[poiEvento] := 0;
+            poiMotivoAtual := POIConfiguracaoInvalida;
+            if poiCalcula then
+            begin
+              poiDir := 1;
+              if Mod(poiLado, 2) = 0 then
+                poiDir := -1;
+              poiPerna := flipEventoOrigemReacao[poiEvento];
+              poiInicio := Max(poiPerna, smcBarra - MaxBuscaOrigemFlip);
+              poiOrigem := -1;
+              poiImpulso := smcBarra;
+              poiSequencia := False;
+              poiMotivoAtual := POISemOrigem;
+              poiValido := (poiInicio >= 0) and (poiInicio < smcBarra)
+                and (smcBarrasValidas >= smcBarra - poiInicio + 1);
+              if poiValido then
+              begin
+                // Na primeira sequência vista de trás para frente, congelar
+                // o início assim que surgir um doji ou candle contrário.
+                poiBusca := smcBarra;
+                while (poiBusca >= poiInicio) and (not poiSequencia) do
+                begin
+                  poiInc := CurrentBar - poiBusca;
+                  poiSequencia := (Close[poiInc] - Open[poiInc]) * poiDir > 0;
+                  poiBusca := poiBusca - 1;
+                end;
+                if poiSequencia then
+                begin
+                  poiImpulso := poiBusca + 1;
+                  while (poiBusca >= poiInicio) and poiSequencia do
+                  begin
+                    poiInc := CurrentBar - poiBusca;
+                    if (Close[poiInc] - Open[poiInc]) * poiDir > 0 then
+                    begin
+                      poiImpulso := poiBusca;
+                      poiBusca := poiBusca - 1;
+                    end
+                    else
+                      poiSequencia := False;
+                  end;
+                end
+                else
+                  poiBusca := smcBarra - 1;
+                while (poiBusca >= poiInicio) and (poiOrigem < 0) do
+                begin
+                  poiInc := CurrentBar - poiBusca;
+                  if (Close[poiInc] - Open[poiInc]) * poiDir < 0 then
+                    poiOrigem := poiBusca;
+                  poiBusca := poiBusca - 1;
+                end;
+                if (poiOrigem < 0) and FallbackPivoFlip and (poiPerna >= poiInicio) then
+                  poiOrigem := poiPerna;
+              end
+              else if (poiInicio >= 0) and (poiInicio < smcBarra) then
+                poiMotivoAtual := POIDadosInvalidos;
+
+              if poiOrigem >= 0 then
+              begin
+                poiInc := CurrentBar - poiOrigem;
+                poiLo := Low[poiInc];
+                poiHi := High[poiInc];
+                if TipoZonaFlip = 1 then
+                begin
+                  if poiDir = 1 then
+                    poiHi := Max(Open[poiInc], Close[poiInc])
+                  else
+                    poiLo := Min(Open[poiInc], Close[poiInc]);
+                end
+                else if (TipoZonaFlip = 2) and poiATRValido[poiInc - 1] then
+                begin
+                  poiATRBase := poiATRBarra[poiInc - 1];
+                  poiBaseLo := poiLo;
+                  poiBaseHi := poiHi;
+                  poiCandles := 1;
+                  poiBusca := poiOrigem - 1;
+                  poiValido := True;
+                  while (poiBusca >= poiPerna) and (poiBusca >= 0)
+                    and (poiCandles < MaxBaseCandlesFlip) and poiValido do
+                  begin
+                    poiInc := CurrentBar - poiBusca;
+                    poiMin := Low[poiInc];
+                    poiMax := High[poiInc];
+                    poiValido := (smcBarrasValidas >= poiInc) and (poiMax >= poiBaseLo)
+                      and (poiMin <= poiBaseHi) and (poiMax - poiMin <= BaseRangeFlipATR * poiATRBase);
+                    if poiValido then
+                    begin
+                      poiLo := Min(poiLo, poiMin);
+                      poiHi := Max(poiHi, poiMax);
+                      poiBaseLo := poiMin;
+                      poiBaseHi := poiMax;
+                      poiCandles := poiCandles + 1;
+                      poiBusca := poiBusca - 1;
+                    end;
+                  end;
+                end;
+                poiLoTicks := Round(poiLo / smcTick);
+                poiHiTicks := Round(poiHi / smcTick);
+                if poiLoTicks - poiLo / smcTick > 0.00000001 then
+                  poiLoTicks := poiLoTicks - 1;
+                if poiHi / smcTick - poiHiTicks > 0.00000001 then
+                  poiHiTicks := poiHiTicks + 1;
+                poiMotivoAtual := POILarguraInvalida;
+                if (poiHiTicks > poiLoTicks) and ((MaxLarguraFlipATR = 0)
+                  or (smcATRDisponivel and ((poiHiTicks - poiLoTicks) * smcTick <= MaxLarguraFlipATR * smcATR))) then
+                begin
+                  poiProx := poiHiTicks;
+                  poiDist := poiLoTicks;
+                  if poiDir = -1 then
+                  begin
+                    poiProx := poiLoTicks;
+                    poiDist := poiHiTicks;
+                  end;
+                  poiSaiu := False;
+                  poiPreMitigou := False;
+                  poiVisitaInicial := False;
+                  poiAproximaInicial := False;
+                  poiInvalidou := False;
+                  poiProf := 0;
+                  for poiBusca := poiImpulso to smcBarra do
+                  begin
+                    poiInc := CurrentBar - poiBusca;
+                    poiAvanco := Round(Close[poiInc] / smcTick) * poiDir;
+                    poiInvalidou := poiInvalidou or (poiAvanco < poiDist * poiDir);
+                    poiPavio := Round(Low[poiInc] / smcTick);
+                    poiPavioReacao := Round(High[poiInc] / smcTick);
+                    if poiDir = -1 then
+                    begin
+                      poiPavio := Round(High[poiInc] / smcTick);
+                      poiPavioReacao := Round(Low[poiInc] / smcTick);
+                    end;
+                    poiDentro := (poiPavio * poiDir <= poiProx * poiDir)
+                      and (poiPavioReacao * poiDir >= poiDist * poiDir);
+                    if poiSaiu then
+                    begin
+                      poiVisitaInicial := poiDentro;
+                      if poiDentro then
+                      begin
+                        poiPreMitigou := True;
+                        poiProf := Max(poiProf, Min(1, (poiProx - poiPavio) * poiDir / (poiHiTicks - poiLoTicks)));
+                      end
+                      else
+                        poiAproximaInicial := poiPavio * poiDir > poiProx * poiDir;
+                    end
+                    else if poiAvanco > poiProx * poiDir then
+                    begin
+                      poiSaiu := True;
+                      poiAproximaInicial := True;
+                    end;
+                  end;
+                  poiMotivoAtual := 0;
+                  if poiInvalidou then
+                    poiMotivoAtual := POIDistalAntesDaAtivacao
+                  else if ExigirFreshFlip and poiPreMitigou then
+                    poiMotivoAtual := POIPreMitigada;
+                end;
+              end;
+
+              if poiMotivoAtual = 0 then
+              begin
+                poiBase := (poiLado - 1) * FlipCapacidade;
+                poiDestino := -1;
+                poiTerminal := -1;
+                if poiUsados[poiLado] > 0 then
+                  for poiSlot := poiBase to poiBase + poiUsados[poiLado] - 1 do
+                  begin
+                    if (poiOrigemZona[poiSlot] = poiOrigem) and (poiLoZona[poiSlot] = poiLoTicks)
+                      and (poiHiZona[poiSlot] = poiHiTicks) then
+                      poiDestino := poiSlot;
+                    if poiFimZona[poiSlot] >= 0 then
+                    begin
+                      if poiTerminal < 0 then
+                        poiTerminal := poiSlot
+                      else if (poiFimZona[poiSlot] < poiFimZona[poiTerminal])
+                        or ((poiFimZona[poiSlot] = poiFimZona[poiTerminal]) and (poiID[poiSlot] < poiID[poiTerminal])) then
+                        poiTerminal := poiSlot;
+                    end;
+                  end;
+                if poiDestino < 0 then
+                begin
+                  poiDestino := poiTerminal;
+                  if poiUsados[poiLado] < FlipCapacidade then
+                  begin
+                    poiDestino := poiBase + poiUsados[poiLado];
+                    poiUsados[poiLado] := poiUsados[poiLado] + 1;
+                  end;
+                  if poiDestino < 0 then
+                    poiMotivoAtual := SMCCapacityFull
+                  else
+                  begin
+                    poiIdTotal := poiIdTotal + 1;
+                    poiID[poiDestino] := poiIdTotal;
+                    poiLados[poiDestino] := poiDir;
+                    poiLoZona[poiDestino] := poiLoTicks;
+                    poiHiZona[poiDestino] := poiHiTicks;
+                    poiOrigemZona[poiDestino] := poiOrigem;
+                    poiInc := CurrentBar - poiOrigem;
+                    poiDiaOrigem[poiDestino] := dataCandle[poiInc];
+                    poiHoraOrigem[poiDestino] := horaCandle[poiInc];
+                    poiAtivacao[poiDestino] := smcBarra;
+                    poiPublicacao[poiDestino] := CurrentBar;
+                    poiDia[poiDestino] := smcDataConfirmada;
+                    poiHora[poiDestino] := smcHoraConfirmada;
+                    poiFimZona[poiDestino] := -1;
+                    poiToque[poiDestino] := -1;
+                    poiVisitas[poiDestino] := 0;
+                    poiReteste[poiDestino] := -1;
+                    poiStatusReteste[poiDestino] := 0;
+                    poiAlvoRef[poiDestino] := -1;
+                    poiAlvoRompido[poiDestino] := False;
+                    poiCruzouAlvo[poiDestino] := False;
+                    poiIntersecaoInvalidacao[poiDestino] := False;
+                    poiPrimeiraVisita[poiDestino] := False;
+                    poiVisita[poiDestino] := poiVisitaInicial;
+                    poiAproxima[poiDestino] := poiAproximaInicial;
+                    poiPre[poiDestino] := poiPreMitigou;
+                    poiProfundidade[poiDestino] := poiProf;
+                    poiEstado[poiDestino] := POIAguardaSaida;
+                    if poiSaiu then
+                      poiEstado[poiDestino] := POIFresh;
+                    if poiPreMitigou then
+                    begin
+                      poiEstado[poiDestino] := POITocada;
+                      if poiProf >= 1 then
+                        poiEstado[poiDestino] := POIMitigadaTotal
+                      else if poiProf >= 0.5 then
+                        poiEstado[poiDestino] := POIMitigada50;
+                      if (EncerrarAposMitigacaoFlip > 0) and (poiProf * 100 >= EncerrarAposMitigacaoFlip) then
+                      begin
+                        poiEstado[poiDestino] := POIEncerrada;
+                        poiFimZona[poiDestino] := smcBarra;
+                        poiDiaFim[poiDestino] := smcDataConfirmada;
+                        poiHoraFim[poiDestino] := smcHoraConfirmada;
+                      end;
+                    end;
+                  end;
+                end;
+                if poiDestino >= 0 then
+                  flipEventoZonaID[poiEvento] := poiID[poiDestino];
+              end;
+            end;
+            flipEventoZonaMotivo[poiEvento] := poiMotivoAtual;
+          end;
+        end;
+      end;
+      smcTemAnterior := smcBarraValida;
+    end;
+  end;
+
+  // Seleção estável, com uma chamada por posição e por trecho de sessão.
+  if poiCalcula and MostrarFaixasFlip and (ModoFaixaOB = 0) and LastBarOnChart
+    and (CurrentBar > 0) and (smcOrigemPublicada = CurrentBar - 1) then
+  begin
+    poiTotalVisual := 0;
+    for poiLado := 1 to 4 do
+    begin
+      poiBase := (poiLado - 1) * FlipCapacidade;
+      if poiUsados[poiLado] > 0 then
+        for poiSlot := poiBase to poiBase + poiUsados[poiLado] - 1 do
+          if ((poiEstado[poiSlot] <> POIInvalidada) or (MostrarInvalidadasFlip > 0))
+            and ((OcultarMitigadasFlip = 0) or (poiProfundidade[poiSlot] * 100 < OcultarMitigadasFlip)) then
+          begin
+            poiPos := poiTotalVisual;
+            poiElegivel := True;
+            while (poiPos > 0) and poiElegivel do
+            begin
+              poiTroca := poiOrdem[poiPos];
+              poiElegivel := (poiAtivacao[poiSlot] > poiAtivacao[poiTroca])
+                or ((poiAtivacao[poiSlot] = poiAtivacao[poiTroca]) and (poiOrigemZona[poiSlot] > poiOrigemZona[poiTroca]))
+                or ((poiAtivacao[poiSlot] = poiAtivacao[poiTroca]) and (poiOrigemZona[poiSlot] = poiOrigemZona[poiTroca])
+                  and (poiID[poiSlot] > poiID[poiTroca]));
+              if poiElegivel then
+              begin
+                if poiPos < MaxFlipVisiveis then
+                  poiOrdem[poiPos + 1] := poiTroca;
+                poiPos := poiPos - 1;
+              end;
+            end;
+            if poiPos < MaxFlipVisiveis then
+            begin
+              poiOrdem[poiPos + 1] := poiSlot;
+              poiTotalVisual := Min(poiTotalVisual + 1, MaxFlipVisiveis);
+            end;
+          end;
+    end;
+    if poiTotalVisual > 0 then
+      for poiPos := 1 to poiTotalVisual do
+      begin
+        poiSlot := poiOrdem[poiPos];
+        poiCentroV[poiPos] := (poiHiZona[poiSlot] + poiLoZona[poiSlot]) * smcTick / 2;
+        poiAlturaV[poiPos] := (poiHiZona[poiSlot] - poiLoZona[poiSlot]) * smcTick / 2;
+        poiCores[poiPos] := CorFaixaFlipAlta;
+        if poiLados[poiSlot] = -1 then
+          poiCores[poiPos] := CorFaixaFlipBaixa;
+        if (poiEstado[poiSlot] = POIInvalidada) and (MostrarInvalidadasFlip = 2) then
+          poiCores[poiPos] := CorInvalidadaFlip;
+        poiDiaIniV[poiPos] := poiDia[poiSlot];
+        poiHoraIniV[poiPos] := poiHora[poiSlot];
+        poiDiaOrigV[poiPos] := poiDiaOrigem[poiSlot];
+        poiHoraOrigV[poiPos] := poiHoraOrigem[poiSlot];
+        poiDataFim := smcDataConfirmada;
+        poiHoraDesenhoFim := smcHoraConfirmada;
+        if poiFimZona[poiSlot] >= 0 then
+        begin
+          poiDataFim := poiDiaFim[poiSlot];
+          poiHoraDesenhoFim := poiHoraFim[poiSlot];
+        end;
+        poiDiaFimV[poiPos] := poiDataFim;
+        poiHoraFimV[poiPos] := poiHoraDesenhoFim;
+        poiDiaPrimeiroV[poiPos] := poiDataFim;
+        poiHoraPrimeiroV[poiPos] := poiHoraDesenhoFim;
+        poiMeioDiasV[poiPos] := False;
+        if poiDiaIniV[poiPos] <> poiDataFim then
+        begin
+          poiDiaPrimeiroV[poiPos] := poiDiaIniV[poiPos];
+          poiHoraPrimeiroV[poiPos] := 2359;
+          poiMeioIniV[poiPos] := CalcDate(poiDiaIniV[poiPos], 1);
+          poiMeioFimV[poiPos] := CalcDate(poiDataFim, -1);
+          poiMeioDiasV[poiPos] := poiMeioIniV[poiPos] <= poiMeioFimV[poiPos];
+        end;
+      end;
+
+    if poiTotalVisual >= 1 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[1]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[1], poiCores[1], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[1], poiDiaPrimeiroV[1], poiAlturaV[1], poiHoraIniV[1], poiHoraPrimeiroV[1]);
+      if poiMeioDiasV[1] then
+        HorizontalLineCustom(poiCentroV[1], poiCores[1], 1, 0, "", 8, 1,
+          poiMeioIniV[1], poiMeioFimV[1], poiAlturaV[1]);
+      if poiDiaIniV[1] <> poiDiaFimV[1] then
+        HorizontalLineCustom(poiCentroV[1], poiCores[1], 1, 0, "", 8, 1,
+          poiDiaFimV[1], poiDiaFimV[1], poiAlturaV[1], 0, poiHoraFimV[1]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[1], poiCores[1], 1, 1, "", 8, 1,
+          poiDiaIniV[1], poiDiaFimV[1], 0, poiHoraIniV[1], poiHoraFimV[1]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[1], poiCentroV[1], poiDiaOrigV[1], poiDiaIniV[1], False, "Origem POI",
+          poiCores[1], 1, 1, 8, 1, poiHoraOrigV[1], poiHoraIniV[1]);
+    end;
+
+    if poiTotalVisual >= 2 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[2]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[2], poiCores[2], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[2], poiDiaPrimeiroV[2], poiAlturaV[2], poiHoraIniV[2], poiHoraPrimeiroV[2]);
+      if poiMeioDiasV[2] then
+        HorizontalLineCustom(poiCentroV[2], poiCores[2], 1, 0, "", 8, 1,
+          poiMeioIniV[2], poiMeioFimV[2], poiAlturaV[2]);
+      if poiDiaIniV[2] <> poiDiaFimV[2] then
+        HorizontalLineCustom(poiCentroV[2], poiCores[2], 1, 0, "", 8, 1,
+          poiDiaFimV[2], poiDiaFimV[2], poiAlturaV[2], 0, poiHoraFimV[2]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[2], poiCores[2], 1, 1, "", 8, 1,
+          poiDiaIniV[2], poiDiaFimV[2], 0, poiHoraIniV[2], poiHoraFimV[2]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[2], poiCentroV[2], poiDiaOrigV[2], poiDiaIniV[2], False, "Origem POI",
+          poiCores[2], 1, 1, 8, 1, poiHoraOrigV[2], poiHoraIniV[2]);
+    end;
+
+    if poiTotalVisual >= 3 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[3]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[3], poiCores[3], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[3], poiDiaPrimeiroV[3], poiAlturaV[3], poiHoraIniV[3], poiHoraPrimeiroV[3]);
+      if poiMeioDiasV[3] then
+        HorizontalLineCustom(poiCentroV[3], poiCores[3], 1, 0, "", 8, 1,
+          poiMeioIniV[3], poiMeioFimV[3], poiAlturaV[3]);
+      if poiDiaIniV[3] <> poiDiaFimV[3] then
+        HorizontalLineCustom(poiCentroV[3], poiCores[3], 1, 0, "", 8, 1,
+          poiDiaFimV[3], poiDiaFimV[3], poiAlturaV[3], 0, poiHoraFimV[3]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[3], poiCores[3], 1, 1, "", 8, 1,
+          poiDiaIniV[3], poiDiaFimV[3], 0, poiHoraIniV[3], poiHoraFimV[3]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[3], poiCentroV[3], poiDiaOrigV[3], poiDiaIniV[3], False, "Origem POI",
+          poiCores[3], 1, 1, 8, 1, poiHoraOrigV[3], poiHoraIniV[3]);
+    end;
+
+    if poiTotalVisual >= 4 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[4]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[4], poiCores[4], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[4], poiDiaPrimeiroV[4], poiAlturaV[4], poiHoraIniV[4], poiHoraPrimeiroV[4]);
+      if poiMeioDiasV[4] then
+        HorizontalLineCustom(poiCentroV[4], poiCores[4], 1, 0, "", 8, 1,
+          poiMeioIniV[4], poiMeioFimV[4], poiAlturaV[4]);
+      if poiDiaIniV[4] <> poiDiaFimV[4] then
+        HorizontalLineCustom(poiCentroV[4], poiCores[4], 1, 0, "", 8, 1,
+          poiDiaFimV[4], poiDiaFimV[4], poiAlturaV[4], 0, poiHoraFimV[4]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[4], poiCores[4], 1, 1, "", 8, 1,
+          poiDiaIniV[4], poiDiaFimV[4], 0, poiHoraIniV[4], poiHoraFimV[4]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[4], poiCentroV[4], poiDiaOrigV[4], poiDiaIniV[4], False, "Origem POI",
+          poiCores[4], 1, 1, 8, 1, poiHoraOrigV[4], poiHoraIniV[4]);
+    end;
+
+    if poiTotalVisual >= 5 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[5]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[5], poiCores[5], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[5], poiDiaPrimeiroV[5], poiAlturaV[5], poiHoraIniV[5], poiHoraPrimeiroV[5]);
+      if poiMeioDiasV[5] then
+        HorizontalLineCustom(poiCentroV[5], poiCores[5], 1, 0, "", 8, 1,
+          poiMeioIniV[5], poiMeioFimV[5], poiAlturaV[5]);
+      if poiDiaIniV[5] <> poiDiaFimV[5] then
+        HorizontalLineCustom(poiCentroV[5], poiCores[5], 1, 0, "", 8, 1,
+          poiDiaFimV[5], poiDiaFimV[5], poiAlturaV[5], 0, poiHoraFimV[5]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[5], poiCores[5], 1, 1, "", 8, 1,
+          poiDiaIniV[5], poiDiaFimV[5], 0, poiHoraIniV[5], poiHoraFimV[5]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[5], poiCentroV[5], poiDiaOrigV[5], poiDiaIniV[5], False, "Origem POI",
+          poiCores[5], 1, 1, 8, 1, poiHoraOrigV[5], poiHoraIniV[5]);
+    end;
+
+    if poiTotalVisual >= 6 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[6]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[6], poiCores[6], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[6], poiDiaPrimeiroV[6], poiAlturaV[6], poiHoraIniV[6], poiHoraPrimeiroV[6]);
+      if poiMeioDiasV[6] then
+        HorizontalLineCustom(poiCentroV[6], poiCores[6], 1, 0, "", 8, 1,
+          poiMeioIniV[6], poiMeioFimV[6], poiAlturaV[6]);
+      if poiDiaIniV[6] <> poiDiaFimV[6] then
+        HorizontalLineCustom(poiCentroV[6], poiCores[6], 1, 0, "", 8, 1,
+          poiDiaFimV[6], poiDiaFimV[6], poiAlturaV[6], 0, poiHoraFimV[6]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[6], poiCores[6], 1, 1, "", 8, 1,
+          poiDiaIniV[6], poiDiaFimV[6], 0, poiHoraIniV[6], poiHoraFimV[6]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[6], poiCentroV[6], poiDiaOrigV[6], poiDiaIniV[6], False, "Origem POI",
+          poiCores[6], 1, 1, 8, 1, poiHoraOrigV[6], poiHoraIniV[6]);
+    end;
+
+    if poiTotalVisual >= 7 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[7]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[7], poiCores[7], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[7], poiDiaPrimeiroV[7], poiAlturaV[7], poiHoraIniV[7], poiHoraPrimeiroV[7]);
+      if poiMeioDiasV[7] then
+        HorizontalLineCustom(poiCentroV[7], poiCores[7], 1, 0, "", 8, 1,
+          poiMeioIniV[7], poiMeioFimV[7], poiAlturaV[7]);
+      if poiDiaIniV[7] <> poiDiaFimV[7] then
+        HorizontalLineCustom(poiCentroV[7], poiCores[7], 1, 0, "", 8, 1,
+          poiDiaFimV[7], poiDiaFimV[7], poiAlturaV[7], 0, poiHoraFimV[7]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[7], poiCores[7], 1, 1, "", 8, 1,
+          poiDiaIniV[7], poiDiaFimV[7], 0, poiHoraIniV[7], poiHoraFimV[7]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[7], poiCentroV[7], poiDiaOrigV[7], poiDiaIniV[7], False, "Origem POI",
+          poiCores[7], 1, 1, 8, 1, poiHoraOrigV[7], poiHoraIniV[7]);
+    end;
+
+    if poiTotalVisual >= 8 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[8]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[8], poiCores[8], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[8], poiDiaPrimeiroV[8], poiAlturaV[8], poiHoraIniV[8], poiHoraPrimeiroV[8]);
+      if poiMeioDiasV[8] then
+        HorizontalLineCustom(poiCentroV[8], poiCores[8], 1, 0, "", 8, 1,
+          poiMeioIniV[8], poiMeioFimV[8], poiAlturaV[8]);
+      if poiDiaIniV[8] <> poiDiaFimV[8] then
+        HorizontalLineCustom(poiCentroV[8], poiCores[8], 1, 0, "", 8, 1,
+          poiDiaFimV[8], poiDiaFimV[8], poiAlturaV[8], 0, poiHoraFimV[8]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[8], poiCores[8], 1, 1, "", 8, 1,
+          poiDiaIniV[8], poiDiaFimV[8], 0, poiHoraIniV[8], poiHoraFimV[8]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[8], poiCentroV[8], poiDiaOrigV[8], poiDiaIniV[8], False, "Origem POI",
+          poiCores[8], 1, 1, 8, 1, poiHoraOrigV[8], poiHoraIniV[8]);
+    end;
+
+    if poiTotalVisual >= 9 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[9]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[9], poiCores[9], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[9], poiDiaPrimeiroV[9], poiAlturaV[9], poiHoraIniV[9], poiHoraPrimeiroV[9]);
+      if poiMeioDiasV[9] then
+        HorizontalLineCustom(poiCentroV[9], poiCores[9], 1, 0, "", 8, 1,
+          poiMeioIniV[9], poiMeioFimV[9], poiAlturaV[9]);
+      if poiDiaIniV[9] <> poiDiaFimV[9] then
+        HorizontalLineCustom(poiCentroV[9], poiCores[9], 1, 0, "", 8, 1,
+          poiDiaFimV[9], poiDiaFimV[9], poiAlturaV[9], 0, poiHoraFimV[9]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[9], poiCores[9], 1, 1, "", 8, 1,
+          poiDiaIniV[9], poiDiaFimV[9], 0, poiHoraIniV[9], poiHoraFimV[9]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[9], poiCentroV[9], poiDiaOrigV[9], poiDiaIniV[9], False, "Origem POI",
+          poiCores[9], 1, 1, 8, 1, poiHoraOrigV[9], poiHoraIniV[9]);
+    end;
+
+    if poiTotalVisual >= 10 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[10]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[10], poiCores[10], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[10], poiDiaPrimeiroV[10], poiAlturaV[10], poiHoraIniV[10], poiHoraPrimeiroV[10]);
+      if poiMeioDiasV[10] then
+        HorizontalLineCustom(poiCentroV[10], poiCores[10], 1, 0, "", 8, 1,
+          poiMeioIniV[10], poiMeioFimV[10], poiAlturaV[10]);
+      if poiDiaIniV[10] <> poiDiaFimV[10] then
+        HorizontalLineCustom(poiCentroV[10], poiCores[10], 1, 0, "", 8, 1,
+          poiDiaFimV[10], poiDiaFimV[10], poiAlturaV[10], 0, poiHoraFimV[10]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[10], poiCores[10], 1, 1, "", 8, 1,
+          poiDiaIniV[10], poiDiaFimV[10], 0, poiHoraIniV[10], poiHoraFimV[10]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[10], poiCentroV[10], poiDiaOrigV[10], poiDiaIniV[10], False, "Origem POI",
+          poiCores[10], 1, 1, 8, 1, poiHoraOrigV[10], poiHoraIniV[10]);
+    end;
+
+    if poiTotalVisual >= 11 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[11]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[11], poiCores[11], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[11], poiDiaPrimeiroV[11], poiAlturaV[11], poiHoraIniV[11], poiHoraPrimeiroV[11]);
+      if poiMeioDiasV[11] then
+        HorizontalLineCustom(poiCentroV[11], poiCores[11], 1, 0, "", 8, 1,
+          poiMeioIniV[11], poiMeioFimV[11], poiAlturaV[11]);
+      if poiDiaIniV[11] <> poiDiaFimV[11] then
+        HorizontalLineCustom(poiCentroV[11], poiCores[11], 1, 0, "", 8, 1,
+          poiDiaFimV[11], poiDiaFimV[11], poiAlturaV[11], 0, poiHoraFimV[11]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[11], poiCores[11], 1, 1, "", 8, 1,
+          poiDiaIniV[11], poiDiaFimV[11], 0, poiHoraIniV[11], poiHoraFimV[11]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[11], poiCentroV[11], poiDiaOrigV[11], poiDiaIniV[11], False, "Origem POI",
+          poiCores[11], 1, 1, 8, 1, poiHoraOrigV[11], poiHoraIniV[11]);
+    end;
+
+    if poiTotalVisual >= 12 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[12]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[12], poiCores[12], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[12], poiDiaPrimeiroV[12], poiAlturaV[12], poiHoraIniV[12], poiHoraPrimeiroV[12]);
+      if poiMeioDiasV[12] then
+        HorizontalLineCustom(poiCentroV[12], poiCores[12], 1, 0, "", 8, 1,
+          poiMeioIniV[12], poiMeioFimV[12], poiAlturaV[12]);
+      if poiDiaIniV[12] <> poiDiaFimV[12] then
+        HorizontalLineCustom(poiCentroV[12], poiCores[12], 1, 0, "", 8, 1,
+          poiDiaFimV[12], poiDiaFimV[12], poiAlturaV[12], 0, poiHoraFimV[12]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[12], poiCores[12], 1, 1, "", 8, 1,
+          poiDiaIniV[12], poiDiaFimV[12], 0, poiHoraIniV[12], poiHoraFimV[12]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[12], poiCentroV[12], poiDiaOrigV[12], poiDiaIniV[12], False, "Origem POI",
+          poiCores[12], 1, 1, 8, 1, poiHoraOrigV[12], poiHoraIniV[12]);
+    end;
+
+    if poiTotalVisual >= 13 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[13]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[13], poiCores[13], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[13], poiDiaPrimeiroV[13], poiAlturaV[13], poiHoraIniV[13], poiHoraPrimeiroV[13]);
+      if poiMeioDiasV[13] then
+        HorizontalLineCustom(poiCentroV[13], poiCores[13], 1, 0, "", 8, 1,
+          poiMeioIniV[13], poiMeioFimV[13], poiAlturaV[13]);
+      if poiDiaIniV[13] <> poiDiaFimV[13] then
+        HorizontalLineCustom(poiCentroV[13], poiCores[13], 1, 0, "", 8, 1,
+          poiDiaFimV[13], poiDiaFimV[13], poiAlturaV[13], 0, poiHoraFimV[13]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[13], poiCores[13], 1, 1, "", 8, 1,
+          poiDiaIniV[13], poiDiaFimV[13], 0, poiHoraIniV[13], poiHoraFimV[13]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[13], poiCentroV[13], poiDiaOrigV[13], poiDiaIniV[13], False, "Origem POI",
+          poiCores[13], 1, 1, 8, 1, poiHoraOrigV[13], poiHoraIniV[13]);
+    end;
+
+    if poiTotalVisual >= 14 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[14]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[14], poiCores[14], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[14], poiDiaPrimeiroV[14], poiAlturaV[14], poiHoraIniV[14], poiHoraPrimeiroV[14]);
+      if poiMeioDiasV[14] then
+        HorizontalLineCustom(poiCentroV[14], poiCores[14], 1, 0, "", 8, 1,
+          poiMeioIniV[14], poiMeioFimV[14], poiAlturaV[14]);
+      if poiDiaIniV[14] <> poiDiaFimV[14] then
+        HorizontalLineCustom(poiCentroV[14], poiCores[14], 1, 0, "", 8, 1,
+          poiDiaFimV[14], poiDiaFimV[14], poiAlturaV[14], 0, poiHoraFimV[14]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[14], poiCores[14], 1, 1, "", 8, 1,
+          poiDiaIniV[14], poiDiaFimV[14], 0, poiHoraIniV[14], poiHoraFimV[14]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[14], poiCentroV[14], poiDiaOrigV[14], poiDiaIniV[14], False, "Origem POI",
+          poiCores[14], 1, 1, 8, 1, poiHoraOrigV[14], poiHoraIniV[14]);
+    end;
+
+    if poiTotalVisual >= 15 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[15]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[15], poiCores[15], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[15], poiDiaPrimeiroV[15], poiAlturaV[15], poiHoraIniV[15], poiHoraPrimeiroV[15]);
+      if poiMeioDiasV[15] then
+        HorizontalLineCustom(poiCentroV[15], poiCores[15], 1, 0, "", 8, 1,
+          poiMeioIniV[15], poiMeioFimV[15], poiAlturaV[15]);
+      if poiDiaIniV[15] <> poiDiaFimV[15] then
+        HorizontalLineCustom(poiCentroV[15], poiCores[15], 1, 0, "", 8, 1,
+          poiDiaFimV[15], poiDiaFimV[15], poiAlturaV[15], 0, poiHoraFimV[15]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[15], poiCores[15], 1, 1, "", 8, 1,
+          poiDiaIniV[15], poiDiaFimV[15], 0, poiHoraIniV[15], poiHoraFimV[15]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[15], poiCentroV[15], poiDiaOrigV[15], poiDiaIniV[15], False, "Origem POI",
+          poiCores[15], 1, 1, 8, 1, poiHoraOrigV[15], poiHoraIniV[15]);
+    end;
+
+    if poiTotalVisual >= 16 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[16]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[16], poiCores[16], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[16], poiDiaPrimeiroV[16], poiAlturaV[16], poiHoraIniV[16], poiHoraPrimeiroV[16]);
+      if poiMeioDiasV[16] then
+        HorizontalLineCustom(poiCentroV[16], poiCores[16], 1, 0, "", 8, 1,
+          poiMeioIniV[16], poiMeioFimV[16], poiAlturaV[16]);
+      if poiDiaIniV[16] <> poiDiaFimV[16] then
+        HorizontalLineCustom(poiCentroV[16], poiCores[16], 1, 0, "", 8, 1,
+          poiDiaFimV[16], poiDiaFimV[16], poiAlturaV[16], 0, poiHoraFimV[16]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[16], poiCores[16], 1, 1, "", 8, 1,
+          poiDiaIniV[16], poiDiaFimV[16], 0, poiHoraIniV[16], poiHoraFimV[16]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[16], poiCentroV[16], poiDiaOrigV[16], poiDiaIniV[16], False, "Origem POI",
+          poiCores[16], 1, 1, 8, 1, poiHoraOrigV[16], poiHoraIniV[16]);
+    end;
+
+    if poiTotalVisual >= 17 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[17]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[17], poiCores[17], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[17], poiDiaPrimeiroV[17], poiAlturaV[17], poiHoraIniV[17], poiHoraPrimeiroV[17]);
+      if poiMeioDiasV[17] then
+        HorizontalLineCustom(poiCentroV[17], poiCores[17], 1, 0, "", 8, 1,
+          poiMeioIniV[17], poiMeioFimV[17], poiAlturaV[17]);
+      if poiDiaIniV[17] <> poiDiaFimV[17] then
+        HorizontalLineCustom(poiCentroV[17], poiCores[17], 1, 0, "", 8, 1,
+          poiDiaFimV[17], poiDiaFimV[17], poiAlturaV[17], 0, poiHoraFimV[17]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[17], poiCores[17], 1, 1, "", 8, 1,
+          poiDiaIniV[17], poiDiaFimV[17], 0, poiHoraIniV[17], poiHoraFimV[17]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[17], poiCentroV[17], poiDiaOrigV[17], poiDiaIniV[17], False, "Origem POI",
+          poiCores[17], 1, 1, 8, 1, poiHoraOrigV[17], poiHoraIniV[17]);
+    end;
+
+    if poiTotalVisual >= 18 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[18]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[18], poiCores[18], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[18], poiDiaPrimeiroV[18], poiAlturaV[18], poiHoraIniV[18], poiHoraPrimeiroV[18]);
+      if poiMeioDiasV[18] then
+        HorizontalLineCustom(poiCentroV[18], poiCores[18], 1, 0, "", 8, 1,
+          poiMeioIniV[18], poiMeioFimV[18], poiAlturaV[18]);
+      if poiDiaIniV[18] <> poiDiaFimV[18] then
+        HorizontalLineCustom(poiCentroV[18], poiCores[18], 1, 0, "", 8, 1,
+          poiDiaFimV[18], poiDiaFimV[18], poiAlturaV[18], 0, poiHoraFimV[18]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[18], poiCores[18], 1, 1, "", 8, 1,
+          poiDiaIniV[18], poiDiaFimV[18], 0, poiHoraIniV[18], poiHoraFimV[18]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[18], poiCentroV[18], poiDiaOrigV[18], poiDiaIniV[18], False, "Origem POI",
+          poiCores[18], 1, 1, 8, 1, poiHoraOrigV[18], poiHoraIniV[18]);
+    end;
+
+    if poiTotalVisual >= 19 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[19]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[19], poiCores[19], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[19], poiDiaPrimeiroV[19], poiAlturaV[19], poiHoraIniV[19], poiHoraPrimeiroV[19]);
+      if poiMeioDiasV[19] then
+        HorizontalLineCustom(poiCentroV[19], poiCores[19], 1, 0, "", 8, 1,
+          poiMeioIniV[19], poiMeioFimV[19], poiAlturaV[19]);
+      if poiDiaIniV[19] <> poiDiaFimV[19] then
+        HorizontalLineCustom(poiCentroV[19], poiCores[19], 1, 0, "", 8, 1,
+          poiDiaFimV[19], poiDiaFimV[19], poiAlturaV[19], 0, poiHoraFimV[19]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[19], poiCores[19], 1, 1, "", 8, 1,
+          poiDiaIniV[19], poiDiaFimV[19], 0, poiHoraIniV[19], poiHoraFimV[19]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[19], poiCentroV[19], poiDiaOrigV[19], poiDiaIniV[19], False, "Origem POI",
+          poiCores[19], 1, 1, 8, 1, poiHoraOrigV[19], poiHoraIniV[19]);
+    end;
+
+    if poiTotalVisual >= 20 then
+    begin
+      poiRotulo := "POI FLIP+";
+      if poiLados[poiOrdem[20]] = -1 then
+        poiRotulo := "POI FLIP-";
+      HorizontalLineCustom(poiCentroV[20], poiCores[20], 1, 0, poiRotulo, 8, 1,
+        poiDiaIniV[20], poiDiaPrimeiroV[20], poiAlturaV[20], poiHoraIniV[20], poiHoraPrimeiroV[20]);
+      if poiMeioDiasV[20] then
+        HorizontalLineCustom(poiCentroV[20], poiCores[20], 1, 0, "", 8, 1,
+          poiMeioIniV[20], poiMeioFimV[20], poiAlturaV[20]);
+      if poiDiaIniV[20] <> poiDiaFimV[20] then
+        HorizontalLineCustom(poiCentroV[20], poiCores[20], 1, 0, "", 8, 1,
+          poiDiaFimV[20], poiDiaFimV[20], poiAlturaV[20], 0, poiHoraFimV[20]);
+      if MeioZonaFlip then
+        HorizontalLineCustom(poiCentroV[20], poiCores[20], 1, 1, "", 8, 1,
+          poiDiaIniV[20], poiDiaFimV[20], 0, poiHoraIniV[20], poiHoraFimV[20]);
+      if MostrarOrigemFlip then
+        LineSegment(poiCentroV[20], poiCentroV[20], poiDiaOrigV[20], poiDiaIniV[20], False, "Origem POI",
+          poiCores[20], 1, 1, 8, 1, poiHoraOrigV[20], poiHoraIniV[20]);
+    end;
+  end;
+
+  // Separar os segmentos confirmados das guias provisórias. Os valores de B
+  // e dos pivos sao imutaveis, inclusive quando a barra de publicacao recalcula.
+  if flipCalcula and (ModoFaixaOB = 0) and (MostrarFlip or MostrarCandidatosFlip)
+    and (CurrentBar > 0) and (smcOrigemPublicada = CurrentBar - 1) then
+    for flipLado := 1 to 4 do
+    begin
+      flipDesenha := False;
+      flipDestino := flipPublicadoSlot[flipLado];
+      flipCor := RGB(0, 128, 0);
+      if Mod(flipLado, 2) = 0 then
+        flipCor := RGB(255, 0, 0);
+      if MostrarFlip and (flipDestino >= 0) then
+      begin
+        flipDesenha := flipEventoPublicacao[flipDestino] = CurrentBar;
+        flipNivelDesenho := flipEventoNivel[flipDestino];
+        flipInicioDia := flipEventoDataMeio[flipDestino];
+        flipInicioHora := flipEventoHoraMeio[flipDestino];
+        flipFimDia := flipEventoData[flipDestino];
+        flipFimHora := flipEventoHora[flipDestino];
+        flipTraco := 0;
+        flipLegenda := "FLIP+ I";
+        if flipLado = 2 then
+          flipLegenda := "FLIP− I"
+        else if flipLado = 3 then
+          flipLegenda := "FLIP+ S"
+        else if flipLado = 4 then
+          flipLegenda := "FLIP− S";
+      end
+      else if MostrarCandidatosFlip and LastBarOnChart and (flipFase[flipLado] = FlipArmado) then
+      begin
+        flipDesenha := True;
+        flipNivelDesenho := flipMeioPreco[flipLado];
+        flipInicioDia := flipMeioDia[flipLado];
+        flipInicioHora := flipMeioHora[flipLado];
+        flipFimDia := smcDataConfirmada;
+        flipFimHora := smcHoraConfirmada;
+        flipTraco := 1;
+        flipLegenda := "Candidato + I";
+        if flipLado = 2 then
+          flipLegenda := "Candidato − I"
+        else if flipLado = 3 then
+          flipLegenda := "Candidato + S"
+        else if flipLado = 4 then
+          flipLegenda := "Candidato − S";
+      end;
+
+      if flipDesenha then
+      begin
+        if flipLado = 1 then
+          LineSegment(flipNivelDesenho, flipNivelDesenho, flipInicioDia, flipFimDia, False, flipLegenda,
+            flipCor, 1, flipTraco, 8, 1, flipInicioHora, flipFimHora)
+        else if flipLado = 2 then
+          LineSegment(flipNivelDesenho, flipNivelDesenho, flipInicioDia, flipFimDia, False, flipLegenda,
+            flipCor, 1, flipTraco, 8, 1, flipInicioHora, flipFimHora)
+        else if flipLado = 3 then
+          LineSegment(flipNivelDesenho, flipNivelDesenho, flipInicioDia, flipFimDia, False, flipLegenda,
+            flipCor, 1, flipTraco, 8, 1, flipInicioHora, flipFimHora)
+        else
+          LineSegment(flipNivelDesenho, flipNivelDesenho, flipInicioDia, flipFimDia, False, flipLegenda,
+            flipCor, 1, flipTraco, 8, 1, flipInicioHora, flipFimHora);
+      end;
+    end;
 end;
