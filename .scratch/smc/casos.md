@@ -109,3 +109,19 @@ Considere fluxo swing de baixa, fundo de referência em 100, topo intermediário
 - Para SW ou SH, deixar a barra 20 confirmar o OB e fechar abaixo de 100. Recuperar 100 na barra 21 ou 22. No SH, a recuperação e a quebra de 127 podem acontecer na mesma barra.
 - Sem tomada de 100, o Flexible com filtros desligados pode publicar após falha e quebra. Em BOTH, quando os dois modelos confirmam juntos, a faixa é única e o rótulo diz Strict.
 - Com o debug desligado, executar nos slots 9 a 12 e alternar a ordem 1/2 quando houver duas zonas na mesma escala e direção. Conferir a faixa, a âncora e o rótulo após recarga e virada de sessão. [Tarefa 12B](tasks/12B-breaker-estrutural.md)
+
+## Gestão da zona confirmada
+
+Para uma faixa compradora de 119–127 ativada na barra 23, considere as seguintes barras fechadas, com tick 1.
+
+| Barra | Máxima | Mínima | Fechamento | Resultado |
+| --- | ---: | ---: | ---: | --- |
+| 24 | 135 | 127 | 132 | Primeiro toque, 0%, visita 1 |
+| 25 | 134 | 123 | 130 | 50% dentro da mesma visita |
+| 26 | 136 | 129 | 135 | Barra inteira fora da faixa |
+| 27 | 136 | 119 | 130 | 100%, visita 2, zona preservada |
+| 28 | 118 | 110 | 113 | Gap abaixo da distal invalida e preserva a contagem de duas visitas |
+
+- Com `OcultarMitigadasBB=50`, a faixa some após o fechamento da barra 25 e o registro continua acompanhando as barras até a invalidação em 28. Com `EncerrarAposMitigacaoBB=50`, a faixa termina na barra 25.
+- Com `MostrarInvalidadasBB=1`, o trecho mantém a cor original até a barra 28. O valor 2 pinta o trecho encerrado em cinza e 0 o oculta. Espelhar o exemplo para uma faixa vendedora.
+- No reteste, se o primeiro toque tiver mínima 125 e o alvo interno de alta 136 já estiver confirmado, um candle posterior com máxima 138 e fechamento 137 pode qualificar a reação e a quebra, desde que cumpra o ATR exigido. Em modo 2, um alvo conhecido só no candle do toque fica indisponível para esse reteste. [Tarefa 12C](tasks/12C-gestao-breaker.md)

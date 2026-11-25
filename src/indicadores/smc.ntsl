@@ -343,6 +343,28 @@ input
   PermitirGapBB(False);
   FiltroCapturaFlexBB(0);
   FiltroDispReversaoFlexBB(0);
+  TipoZonaOBBB(0);
+  MaxBaseCandlesBB(3);
+  BaseRangeBBATR(1.0);
+  MaxLarguraBBATR(0.0);
+  MostrarMeioBB(True);
+  MostrarOrigemOBBB(False);
+  MostrarCandidatosBB(False);
+  MostrarRotuloBB(True);
+  MaxBBVisiveis(10);
+  CorBBAlta(clGreen);
+  CorBBBaixa(clRed);
+  CorBBInvalidada(clGray);
+  ModoInvalidacaoBB(0);
+  BufferInvalidacaoTicksBB(1);
+  MostrarInvalidadasBB(1);
+  OcultarMitigadasBB(0);
+  EncerrarAposMitigacaoBB(0);
+  MaxIdadeBB(0);
+  MaxVisitasBB(0);
+  ModoRetesteBB(0);
+  ReacaoRetesteBBATR(0.5);
+  MaxBarrasRetesteBB(20);
 
 var
   periodo, perna, vies : Integer;
@@ -422,7 +444,7 @@ var
     bbRevLadoLQ, bbRefTicks, bbMeioTicks, bbFalhaTicks, bbDistalTicks, bbDistFalha, bbDistMeio, bbDistExtremo,
     bbPenetrou, bbLimiteEstrutura, bbLimiteFalha, bbAncora, bbInicioDisp, bbFimQuebras,
     bbClassificacao, bbNovoEstado, bbZona, bbZonaFatos, bbOrdem, bbRank, bbRankPos, bbOutro,
-    bbDataFim, bbTipoFonteLQ, bbDispoLQ : Integer;
+    bbTipoFonteLQ, bbDispoLQ : Integer;
   bbZonaCentro, bbZonaAltura : Float;
   bbFluxoAnterior, bbProtecaoAnterior, bbPerdaProtecao, bbFluxoMotivo : array[0..1] of Integer;
   bbMeioExtremoRef, bbMeioExtremoOrigem, bbMeioExtremoTicks, bbZonaUsados, bbZonaProximo : array[1..4] of Integer;
@@ -438,6 +460,24 @@ var
   bbZonaConfirmou, bbZonaFalha, bbZonaQuebra, bbZonaTomada, bbZonaRecuperacao, bbZonaCaptura,
     bbZonaTipoCaptura, bbZonaDispInicio, bbZonaDispFim : array[0..BBRevUltimo] of Integer;
   bbZonaRanking : array[1..BBCapacidade] of Integer;
+  bbGeometriaValida, bbBaseContinua, bbVidaCalcula, bbVidaIntersecao, bbVidaTocou,
+    bbVidaInvalidou, bbVidaExpirou, bbVidaReagiu, bbVisualFiltro, bbVisualTermina, bbVisualMeioDias : Boolean;
+  bbGeomPiso, bbGeomBusca, bbGeomLag, bbGeomContagem, bbGeomLoTicks, bbGeomHiTicks,
+    bbVidaLado, bbVidaBase, bbVidaUltimo, bbVidaDir, bbVidaIndicePivo, bbVidaSlotPivo,
+    bbVidaMin, bbVidaMax, bbVidaPavio, bbVidaReacao, bbVidaPreco, bbVidaAvanco, bbVidaNovoEstado,
+    bbVisualPrimeiroLado, bbVisualUltimoLado, bbVisualPrimeiro, bbVisualUltimo, bbVisualPos, bbVisualLugar,
+    bbVisualDataIni, bbVisualHoraIni, bbVisualDataFim, bbVisualHoraFim,
+    bbVisualFimPrimeiro, bbVisualHoraPrimeiro, bbVisualIniMeio, bbVisualFimMeio : Integer;
+  bbGeomLo, bbGeomHi, bbGeomAnteriorLo, bbGeomAnteriorHi, bbGeomMin, bbGeomMax, bbGeomATR, bbVidaProf : Float;
+  bbAlvoDisponivel : array[1..2] of Boolean;
+  bbAlvoInternoTicks, bbAlvoInternoRef : array[1..2] of Integer;
+  bbZonaEstado, bbZonaFim, bbZonaFimData, bbZonaFimHora, bbZonaVisitas, bbZonaToque,
+    bbZonaOrigemData, bbZonaOrigemHora, bbZonaMitigada50Em, bbZonaMitigada100Em,
+    bbZonaExtremoVisita, bbZonaRetesteStatus, bbZonaReteste, bbZonaRetesteData, bbZonaRetesteHora,
+    bbZonaRetestePubData, bbZonaRetestePubHora, bbZonaAlvoReteste, bbZonaAlvoRetesteRef : array[0..BBUltimo] of Integer;
+  bbZonaVisita, bbZonaAproxima, bbZonaPrimeiraVisita, bbZonaATRToqueValido, bbZonaAlvoCruzou,
+    bbZonaAlvoRompido : array[0..BBUltimo] of Boolean;
+  bbZonaProfundidade, bbZonaATRToque : array[0..BBUltimo] of Float;
   ladoOrigemBreaker, quadroOBRemovido, indiceOBRemovido : Integer;
   carimbosOBRemovidos, quantidadesOBRemovidos : array[0..4] of Integer;
   criacoesOBRemovidos : array[1..TotalEspacosOBRemovidos] of Integer;
@@ -691,7 +731,9 @@ begin
   bbCalcula := (ModoBB >= 1) and (ModoBB <= 3) and (FonteOBBB >= 0) and (FonteOBBB <= 1)
     and (EscalaBB >= 0) and (EscalaBB <= 2) and (MaxBuscaOrigemOBBB >= 1) and (MaxBuscaOrigemOBBB <= 20)
     and (DispATRBB >= 0) and (CorpoMinBB >= 0) and (CorpoMinBB <= 1)
-    and (MaxCandlesDispBB >= 1) and (MaxCandlesDispBB <= 3) and (MaxIdadeOBBB >= 0);
+    and (MaxCandlesDispBB >= 1) and (MaxCandlesDispBB <= 3) and (MaxIdadeOBBB >= 0)
+    and (TipoZonaOBBB >= 0) and (TipoZonaOBBB <= 3) and (MaxBaseCandlesBB >= 1)
+    and (BaseRangeBBATR >= 0) and (MaxLarguraBBATR >= 0);
   bbUsaLux := bbCalcula and (FonteOBBB = 1);
   bbRevCalcula := bbCalcula and (TipoQuebraBB >= 0) and (TipoQuebraBB <= 1)
     and (MinReacaoBBATR >= 0) and (BufferFalhaOBTicks >= 0) and (BufferEstruturaBBTicks >= 0)
@@ -699,6 +741,12 @@ begin
     and (FiltroCapturaFlexBB >= 0) and (FiltroCapturaFlexBB <= 2)
     and (FiltroDispReversaoFlexBB >= 0) and (FiltroDispReversaoFlexBB <= 2);
   bbPrecisaLQ := bbRevCalcula and ((ModoBB <> 2) or (FiltroCapturaFlexBB > 0));
+  bbVidaCalcula := bbRevCalcula and (ModoInvalidacaoBB >= 0) and (ModoInvalidacaoBB <= 1)
+    and (BufferInvalidacaoTicksBB >= 0) and (MostrarInvalidadasBB >= 0) and (MostrarInvalidadasBB <= 2)
+    and ((OcultarMitigadasBB = 0) or (OcultarMitigadasBB = 50) or (OcultarMitigadasBB = 100))
+    and ((EncerrarAposMitigacaoBB = 0) or (EncerrarAposMitigacaoBB = 50) or (EncerrarAposMitigacaoBB = 100))
+    and (MaxIdadeBB >= 0) and (MaxVisitasBB >= 0) and (ModoRetesteBB >= 0) and (ModoRetesteBB <= 2)
+    and (ReacaoRetesteBBATR >= 0) and (MaxBarrasRetesteBB >= 0);
   calculaPD := ((ModoFaixaOB = 0) and MostrarZonasPD) or DebugSMC;
   calculaOBInterno := calculaBlocosInternos or DebugSMC or (bbUsaLux and (EscalaBB <> 1));
   calculaOBSwing := calculaBlocosSwing or DebugSMC or (bbUsaLux and (EscalaBB <> 0));
@@ -795,6 +843,8 @@ begin
           bbZonaUsados[bbLado] := 0;
           bbZonaProximo[bbLado] := 0;
         end;
+        for bbVidaIndicePivo := 1 to 2 do
+          bbAlvoDisponivel[bbVidaIndicePivo] := False;
       end;
       smcOrigemPublicada := -1;
       smcPublicados := 0;
@@ -5307,6 +5357,70 @@ begin
                     bbIntermediario[bbSlot] := bbMeioOrigem[bbLado];
                     bbIntermediarioRef[bbSlot] := bbMeioRef[bbLado];
                     bbIntermediarioPreco[bbSlot] := bbMeioPreco[bbLado];
+                    if TipoZonaOBBB > 0 then
+                    begin
+                      bbGeomLag := CurrentBar - bbOrigem[bbSlot];
+                      bbGeomLo := bbLo[bbSlot];
+                      bbGeomHi := bbHi[bbSlot];
+                      bbGeometriaValida := smcBarrasValidas >= bbGeomLag;
+                      if (TipoZonaOBBB = 1) and (bbDirecao = -1) then
+                        bbGeomLo := Max(bbGeomLo, Min(Open[bbGeomLag], Close[bbGeomLag]));
+                      if (TipoZonaOBBB = 1) and (bbDirecao = 1) then
+                        bbGeomHi := Min(bbGeomHi, Max(Open[bbGeomLag], Close[bbGeomLag]));
+                      if TipoZonaOBBB = 2 then
+                      begin
+                        bbGeomLo := Min(Open[bbGeomLag], Close[bbGeomLag]);
+                        bbGeomHi := Max(Open[bbGeomLag], Close[bbGeomLag]);
+                      end;
+                      if TipoZonaOBBB = 3 then
+                      begin
+                        bbGeomATR := bbATRAnterior[bbGeomLag - 1];
+                        if BaseRangeBBATR > 0 then
+                          bbGeometriaValida := bbGeometriaValida and bbATRAnteriorValido[bbGeomLag - 1]
+                            and (High[bbGeomLag] - Low[bbGeomLag] <= BaseRangeBBATR * bbGeomATR);
+                        bbGeomAnteriorLo := bbGeomLo;
+                        bbGeomAnteriorHi := bbGeomHi;
+                        bbGeomPiso := Max(bbPiso, bbOrigem[bbSlot] - MaxBuscaOrigemOBBB + 1);
+                        bbGeomBusca := bbOrigem[bbSlot] - 1;
+                        bbGeomContagem := 1;
+                        bbBaseContinua := bbGeometriaValida;
+                        while bbBaseContinua and (bbGeomBusca >= bbGeomPiso) and (bbGeomContagem < MaxBaseCandlesBB) do
+                        begin
+                          bbGeomLag := CurrentBar - bbGeomBusca;
+                          bbGeomMin := Low[bbGeomLag];
+                          bbGeomMax := High[bbGeomLag];
+                          bbBaseContinua := (smcBarrasValidas >= bbGeomLag) and (bbGeomMax >= bbGeomAnteriorLo)
+                            and (bbGeomMin <= bbGeomAnteriorHi)
+                            and ((BaseRangeBBATR = 0) or (bbGeomMax - bbGeomMin <= BaseRangeBBATR * bbGeomATR));
+                          if bbBaseContinua then
+                          begin
+                            bbGeomLo := Min(bbGeomLo, bbGeomMin);
+                            bbGeomHi := Max(bbGeomHi, bbGeomMax);
+                            bbGeomAnteriorLo := bbGeomMin;
+                            bbGeomAnteriorHi := bbGeomMax;
+                            bbGeomContagem := bbGeomContagem + 1;
+                            bbGeomBusca := bbGeomBusca - 1;
+                          end;
+                        end;
+                      end;
+
+                      if bbGeometriaValida and (bbGeomHi > bbGeomLo) then
+                      begin
+                        bbGeomLoTicks := Round(bbGeomLo / smcTick);
+                        bbGeomHiTicks := Round(bbGeomHi / smcTick);
+                        if bbGeomLoTicks - bbGeomLo / smcTick > 0.00000001 then
+                          bbGeomLoTicks := bbGeomLoTicks - 1;
+                        if bbGeomHi / smcTick - bbGeomHiTicks > 0.00000001 then
+                          bbGeomHiTicks := bbGeomHiTicks + 1;
+                        bbLo[bbSlot] := bbGeomLoTicks * smcTick;
+                        bbHi[bbSlot] := bbGeomHiTicks * smcTick;
+                      end
+                      else
+                      begin
+                        bbEstado[bbSlot] := BBEncerrado;
+                        bbFimRegistro[bbSlot] := smcBarra;
+                      end;
+                    end;
                     if bbRevCalcula then
                     begin
                       bbExtremoRef[bbSlot] := bbMeioExtremoRef[bbLado];
@@ -5391,9 +5505,18 @@ begin
                         if (bbBarra = smcBarra) and (bbSaida[bbSlot] >= 0)
                           and (bbDeslocamentoFim[bbSlot] >= 0) and (bbQuebra[bbSlot] >= 0) then
                         begin
-                          bbEstado[bbSlot] := BBQualificado;
-                          bbConfirmacao[bbSlot] := smcBarra;
-                          bbPublicacao[bbSlot] := CurrentBar;
+                          if (MaxLarguraBBATR > 0) and ((not smcATRDisponivel)
+                            or (bbHi[bbSlot] - bbLo[bbSlot] > MaxLarguraBBATR * smcATR)) then
+                          begin
+                            bbEstado[bbSlot] := BBEncerrado;
+                            bbFimRegistro[bbSlot] := smcBarra;
+                          end
+                          else
+                          begin
+                            bbEstado[bbSlot] := BBQualificado;
+                            bbConfirmacao[bbSlot] := smcBarra;
+                            bbPublicacao[bbSlot] := CurrentBar;
+                          end;
                         end;
                       end;
                     end;
@@ -5402,6 +5525,191 @@ begin
           end;
         end;
       end;
+      // 12C: so as zonas preexistentes recebem o fechamento de t.
+      if bbVidaCalcula then
+      begin
+        if smcBarraValida then
+        begin
+          bbVidaMin := Round(Low[1] / smcTick);
+          bbVidaMax := Round(High[1] / smcTick);
+          for bbVidaLado := 1 to 4 do
+          begin
+            bbVidaDir := 2 * (Mod(bbVidaLado - 1, 2) + 1) - 3;
+            bbVidaIndicePivo := 1;
+            bbVidaPavio := bbVidaMin;
+            bbVidaReacao := bbVidaMax;
+            if bbVidaDir = -1 then
+            begin
+              bbVidaIndicePivo := 2;
+              bbVidaPavio := bbVidaMax;
+              bbVidaReacao := bbVidaMin;
+            end;
+            bbVidaBase := (bbVidaLado - 1) * BBCapacidade;
+            bbVidaUltimo := bbVidaBase + bbZonaUsados[bbVidaLado] - 1;
+            for bbZona := bbVidaBase to bbVidaUltimo do
+              if (bbZonaFim[bbZona] < 0) and (bbZonaAtivacao[bbZona] < smcBarra) then
+              begin
+                bbGeomLoTicks := Round(bbZonaLo[bbZona] / smcTick);
+                bbGeomHiTicks := Round(bbZonaHi[bbZona] / smcTick);
+                bbProximal := bbGeomHiTicks;
+                bbDistal := bbGeomLoTicks;
+                if bbVidaDir = -1 then
+                begin
+                  bbProximal := bbGeomLoTicks;
+                  bbDistal := bbGeomHiTicks;
+                end;
+
+                bbVidaPreco := smcFechamentoTicks;
+                if ModoInvalidacaoBB = 1 then
+                  bbVidaPreco := bbVidaPavio;
+                bbVidaInvalidou := (bbDistal - bbVidaPreco) * bbVidaDir >= Max(1, BufferInvalidacaoTicksBB);
+                bbVidaExpirou := (MaxIdadeBB > 0) and (smcBarra - bbZonaAtivacao[bbZona] > MaxIdadeBB);
+                bbVidaIntersecao := (bbVidaMin <= bbGeomHiTicks) and (bbVidaMax >= bbGeomLoTicks);
+                bbVidaNovoEstado := bbZonaEstado[bbZona];
+                bbVidaTocou := False;
+
+                if bbVidaNovoEstado = POIAguardaSaida then
+                begin
+                  if (smcFechamentoTicks - bbProximal) * bbVidaDir > 0 then
+                  begin
+                    bbVidaNovoEstado := POIFresh;
+                    bbZonaAproxima[bbZona] := True;
+                  end;
+                end
+                else if bbVidaIntersecao then
+                begin
+                  bbVidaTocou := (bbZonaVisita[bbZona] or bbZonaAproxima[bbZona])
+                    and ((not bbVidaExpirou) or bbVidaInvalidou);
+                  if bbVidaTocou then
+                  begin
+                    if not bbZonaVisita[bbZona] then
+                      bbZonaVisitas[bbZona] := bbZonaVisitas[bbZona] + 1;
+                    bbZonaVisita[bbZona] := True;
+                    bbVidaProf := Min(1, Max(0, (bbProximal - bbVidaPavio) * bbVidaDir / (bbGeomHiTicks - bbGeomLoTicks)));
+                    bbZonaProfundidade[bbZona] := Max(bbZonaProfundidade[bbZona], bbVidaProf);
+                    if (bbZonaMitigada50Em[bbZona] < 0) and (bbVidaProf >= 0.5) then
+                      bbZonaMitigada50Em[bbZona] := smcBarra;
+                    if (bbZonaMitigada100Em[bbZona] < 0) and (bbVidaProf >= 1) then
+                      bbZonaMitigada100Em[bbZona] := smcBarra;
+                    bbVidaNovoEstado := POITocada;
+                    if bbZonaProfundidade[bbZona] >= 1 then
+                      bbVidaNovoEstado := POIMitigadaTotal
+                    else if bbZonaProfundidade[bbZona] >= 0.5 then
+                      bbVidaNovoEstado := POIMitigada50;
+                  end;
+                end
+                else
+                begin
+                  bbVidaExpirou := bbVidaExpirou or (bbZonaVisita[bbZona] and (MaxVisitasBB > 0)
+                    and (bbZonaVisitas[bbZona] >= MaxVisitasBB));
+                  bbZonaVisita[bbZona] := False;
+                  bbZonaPrimeiraVisita[bbZona] := False;
+                  bbZonaAproxima[bbZona] := (bbVidaPavio - bbProximal) * bbVidaDir > 0;
+                end;
+
+                if bbVidaTocou and (bbZonaToque[bbZona] < 0) then
+                begin
+                  bbZonaToque[bbZona] := smcBarra;
+                  bbZonaExtremoVisita[bbZona] := bbVidaPavio;
+                  bbZonaPrimeiraVisita[bbZona] := True;
+                  if ModoRetesteBB > 0 then
+                  begin
+                    bbZonaATRToque[bbZona] := smcATR;
+                    bbZonaATRToqueValido[bbZona] := smcATRDisponivel;
+                    bbZonaRetesteStatus[bbZona] := POIRetesteAguardando;
+                    if (ReacaoRetesteBBATR > 0) and (not smcATRDisponivel) then
+                      bbZonaRetesteStatus[bbZona] := POIRetesteIndisponivel;
+                    if ModoRetesteBB = 2 then
+                    begin
+                      if bbAlvoDisponivel[bbVidaIndicePivo] and smcTemAnterior
+                        and ((smcFechamentoTicks - bbAlvoInternoTicks[bbVidaIndicePivo]) * bbVidaDir <= 0) then
+                      begin
+                        bbZonaAlvoReteste[bbZona] := bbAlvoInternoTicks[bbVidaIndicePivo];
+                        bbZonaAlvoRetesteRef[bbZona] := bbAlvoInternoRef[bbVidaIndicePivo];
+                      end
+                      else
+                        bbZonaRetesteStatus[bbZona] := POIRetesteIndisponivel;
+                    end;
+                  end;
+                end;
+
+                if bbVidaInvalidou then
+                  bbVidaNovoEstado := POIInvalidada
+                else if bbVidaExpirou then
+                  bbVidaNovoEstado := POIExpirada
+                else if (EncerrarAposMitigacaoBB > 0) and (bbZonaProfundidade[bbZona] * 100 >= EncerrarAposMitigacaoBB) then
+                  bbVidaNovoEstado := POIEncerrada
+                else if bbZonaRetesteStatus[bbZona] = POIRetesteAguardando then
+                begin
+                  if (MaxBarrasRetesteBB > 0) and (smcBarra - bbZonaToque[bbZona] > MaxBarrasRetesteBB) then
+                    bbZonaRetesteStatus[bbZona] := POIRetesteExpirado
+                  else if smcBarra > bbZonaToque[bbZona] then
+                  begin
+                    if (ModoRetesteBB = 2) and (not bbZonaAlvoRompido[bbZona]) then
+                    begin
+                      bbVidaAvanco := (smcFechamentoTicks - bbZonaAlvoReteste[bbZona]) * bbVidaDir;
+                      if (not smcTemAnterior) or (bbVidaAvanco <= 0) then
+                        bbZonaAlvoCruzou[bbZona] := False
+                      else
+                      begin
+                        if (smcAnteriorTicks - bbZonaAlvoReteste[bbZona]) * bbVidaDir <= 0 then
+                          bbZonaAlvoCruzou[bbZona] := True;
+                        if bbZonaAlvoCruzou[bbZona] and (bbVidaAvanco >= Max(1, BufferRupturaSMCTicks)) then
+                          bbZonaAlvoRompido[bbZona] := True;
+                      end;
+                    end;
+                    bbVidaReagiu := ((ReacaoRetesteBBATR = 0) or bbZonaATRToqueValido[bbZona])
+                      and ((bbVidaReacao - bbZonaExtremoVisita[bbZona]) * bbVidaDir * smcTick
+                        >= Max(smcTick, ReacaoRetesteBBATR * bbZonaATRToque[bbZona]))
+                      and ((smcFechamentoTicks - bbProximal) * bbVidaDir > 0);
+                    if bbVidaReagiu and ((ModoRetesteBB = 1) or bbZonaAlvoRompido[bbZona]) then
+                    begin
+                      bbZonaRetesteStatus[bbZona] := POIRetesteConfirmado;
+                      bbZonaReteste[bbZona] := smcBarra;
+                      bbZonaRetesteData[bbZona] := smcDataConfirmada;
+                      bbZonaRetesteHora[bbZona] := smcHoraConfirmada;
+                      bbZonaRetestePubData[bbZona] := dataCandle;
+                      bbZonaRetestePubHora[bbZona] := horaCandle;
+                    end;
+                  end;
+                end;
+                if bbVidaTocou and bbZonaPrimeiraVisita[bbZona]
+                  and ((bbVidaPavio - bbZonaExtremoVisita[bbZona]) * bbVidaDir < 0) then
+                  bbZonaExtremoVisita[bbZona] := bbVidaPavio;
+                bbZonaEstado[bbZona] := bbVidaNovoEstado;
+                if bbVidaNovoEstado >= POIInvalidada then
+                begin
+                  bbZonaFim[bbZona] := smcBarra;
+                  bbZonaFimData[bbZona] := smcDataConfirmada;
+                  bbZonaFimHora[bbZona] := smcHoraConfirmada;
+                  if bbZonaRetesteStatus[bbZona] = POIRetesteAguardando then
+                    bbZonaRetesteStatus[bbZona] := POIRetesteEncerrado;
+                end;
+              end;
+          end;
+        end;
+
+        // Pivos confirmados em t so estao disponiveis para toques posteriores.
+        if ModoRetesteBB = 2 then
+          for bbVidaIndicePivo := 1 to 2 do
+          begin
+            bbVidaDir := 3 - 2 * bbVidaIndicePivo;
+            if (not smcBarraValida) or ((smcFechamentoTicks - bbAlvoInternoTicks[bbVidaIndicePivo]) * bbVidaDir > 0) then
+              bbAlvoDisponivel[bbVidaIndicePivo] := False;
+            bbVidaSlotPivo := smcPivoNaBarra[bbVidaIndicePivo];
+            if smcBarraValida and (bbVidaSlotPivo >= 0) and smcPivoValido[bbVidaIndicePivo] then
+            begin
+              bbAlvoDisponivel[bbVidaIndicePivo] := False;
+              if smcEventoQualificacao[bbVidaSlotPivo] <> SMCAmbiguo then
+              begin
+                bbAlvoInternoTicks[bbVidaIndicePivo] := Round(smcEventoLo[bbVidaSlotPivo] / smcTick);
+                bbAlvoInternoRef[bbVidaIndicePivo] := smcBarra;
+                bbAlvoDisponivel[bbVidaIndicePivo] := (smcFechamentoTicks - bbAlvoInternoTicks[bbVidaIndicePivo]) * bbVidaDir <= 0;
+              end;
+            end;
+          end;
+      end;
+
       // 12B: a reversao consome os fatos fechados antes de o LQ admitir novas fontes.
       if bbRevCalcula then
         for bbRevLado := 1 to 4 do
@@ -5698,6 +6006,9 @@ begin
                       bbZonaVinculo[bbSlot] := bbZona;
                       bbZonaOB[bbZona] := bbID[bbSlot];
                       bbZonaOrigem[bbZona] := bbOrigem[bbSlot];
+                      bbLag := CurrentBar - bbOrigem[bbSlot];
+                      bbZonaOrigemData[bbZona] := dataCandle[bbLag];
+                      bbZonaOrigemHora[bbZona] := horaCandle[bbLag];
                       bbZonaLo[bbZona] := bbLo[bbSlot];
                       bbZonaHi[bbZona] := bbHi[bbSlot];
                       bbZonaFonte[bbZona] := bbFonte[bbSlot];
@@ -5708,6 +6019,23 @@ begin
                       bbZonaModelo[bbZona] := bbModelo;
                       bbZonaMeioRef[bbZona] := bbIntermediarioRef[bbSlot];
                       bbZonaExtremoRef[bbZona] := bbExtremoRef[bbSlot];
+                      bbZonaEstado[bbZona] := POIAguardaSaida;
+                      bbZonaAproxima[bbZona] := bbDistFalha > 0;
+                      if bbZonaAproxima[bbZona] then
+                        bbZonaEstado[bbZona] := POIFresh;
+                      bbZonaFim[bbZona] := -1;
+                      bbZonaVisitas[bbZona] := 0;
+                      bbZonaVisita[bbZona] := False;
+                      bbZonaPrimeiraVisita[bbZona] := False;
+                      bbZonaProfundidade[bbZona] := 0;
+                      bbZonaToque[bbZona] := -1;
+                      bbZonaMitigada50Em[bbZona] := -1;
+                      bbZonaMitigada100Em[bbZona] := -1;
+                      bbZonaRetesteStatus[bbZona] := 0;
+                      bbZonaReteste[bbZona] := -1;
+                      bbZonaAlvoRetesteRef[bbZona] := -1;
+                      bbZonaAlvoCruzou[bbZona] := False;
+                      bbZonaAlvoRompido[bbZona] := False;
                       bbZonaConfirmou[bbZona] := -1;
                       bbZonaConfirmou[bbZona + BBTotal] := -1;
                     end;
@@ -6057,13 +6385,15 @@ begin
   end;
 
 
-  if bbCalcula and DebugSMC and (CurrentBar > 0) then
+  if bbCalcula and (DebugSMC or (MostrarCandidatosBB and MostrarBBEstrutural
+    and ((ModoFaixaOB = 0) or ((ModoFaixaOB >= 9) and (ModoFaixaOB <= 12))))) and (CurrentBar > 0) then
     for bbLado := 1 to 4 do
     begin
       bbBase := (bbLado - 1) * BBCapacidade;
       bbFim := bbBase + bbUsados[bbLado] - 1;
       for bbSlot := bbBase to bbFim do
-        if bbPublicacao[bbSlot] = CurrentBar then
+        if (bbPublicacao[bbSlot] = CurrentBar) and (DebugSMC or (((ModoFaixaOB = 0) or (bbLado = 13 - ModoFaixaOB))
+          and (((Mod(bbLado, 2) = 0) and MostrarBBComprador) or ((Mod(bbLado, 2) = 1) and MostrarBBVendedor)))) then
         begin
           bbRotulo := "OB BB ICT";
           if bbFonte[bbSlot] = 1 then
@@ -6093,74 +6423,535 @@ begin
     end;
 
 
-  // Slots exclusivos. A zona e ancorada na ativacao, inclusive entre sessoes.
-  if bbRevCalcula and MostrarBBEstrutural and LastBarOnChart and (CurrentBar > 0)
-    and (ModoFaixaOB >= 9) and (ModoFaixaOB <= 12) and (smcOrigemPublicada = CurrentBar - 1)
-    and (OrdemFaixaSMC >= 1) and (OrdemFaixaSMC <= BBCapacidade) then
+  // Painel e slots usam o mesmo ranking, depois dos filtros de visibilidade.
+  if bbVidaCalcula and MostrarBBEstrutural and LastBarOnChart and (CurrentBar > 0)
+    and ((ModoFaixaOB = 0) or ((ModoFaixaOB >= 9) and (ModoFaixaOB <= 12)))
+    and (smcOrigemPublicada = CurrentBar - 1) then
   begin
-    bbRevLado := 13 - ModoFaixaOB;
-    bbRevDir := 2 * (Mod(bbRevLado - 1, 2) + 1) - 3;
-    if ((bbRevDir = 1) and MostrarBBComprador) or ((bbRevDir = -1) and MostrarBBVendedor) then
+    bbVisualPrimeiroLado := 1;
+    bbVisualUltimoLado := 4;
+    bbOrdem := MaxBBVisiveis;
+    bbVisualPrimeiro := 1;
+    if ModoFaixaOB <> 0 then
     begin
+      bbVisualPrimeiroLado := 13 - ModoFaixaOB;
+      bbVisualUltimoLado := bbVisualPrimeiroLado;
       bbOrdem := OrdemFaixaSMC;
-      bbRank := 0;
-      bbBase := (bbRevLado - 1) * BBCapacidade;
-      bbRevFim := bbBase + bbZonaUsados[bbRevLado] - 1;
-      for bbZona := bbBase to bbRevFim do
-        if bbZonaPublicacao[bbZona] <= CurrentBar then
+      bbVisualPrimeiro := bbOrdem;
+    end;
+    bbRank := 0;
+    if (bbOrdem >= 1) and (bbOrdem <= BBCapacidade)
+      and ((ModoFaixaOB <> 0) or (bbOrdem <= POILimiteVisual)) then
+      for bbRevLado := bbVisualPrimeiroLado to bbVisualUltimoLado do
+      begin
+        bbRevDir := 2 * (Mod(bbRevLado - 1, 2) + 1) - 3;
+        if ((bbRevDir = 1) and MostrarBBComprador) or ((bbRevDir = -1) and MostrarBBVendedor) then
         begin
-          bbRankPos := bbRank;
-          bbCriar := True;
-          while (bbRankPos > 0) and bbCriar do
+          bbBase := (bbRevLado - 1) * BBCapacidade;
+          bbRevFim := bbBase + bbZonaUsados[bbRevLado] - 1;
+          for bbZona := bbBase to bbRevFim do
           begin
-            bbOutro := bbZonaRanking[bbRankPos];
-            bbCriar := (bbZonaAtivacao[bbZona] > bbZonaAtivacao[bbOutro])
-              or ((bbZonaAtivacao[bbZona] = bbZonaAtivacao[bbOutro])
-                and ((bbZonaOrigem[bbZona] > bbZonaOrigem[bbOutro])
-                  or ((bbZonaOrigem[bbZona] = bbZonaOrigem[bbOutro]) and (bbZonaOB[bbZona] > bbZonaOB[bbOutro]))));
-            if bbCriar then
+            bbVisualFiltro := (bbZonaPublicacao[bbZona] <= CurrentBar)
+              and ((bbZonaEstado[bbZona] <> POIInvalidada) or (MostrarInvalidadasBB > 0))
+              and ((OcultarMitigadasBB = 0) or (bbZonaProfundidade[bbZona] * 100 < OcultarMitigadasBB));
+            if bbVisualFiltro then
             begin
+              bbRankPos := bbRank;
+              bbCriar := True;
+              while (bbRankPos > 0) and bbCriar do
+              begin
+                bbOutro := bbZonaRanking[bbRankPos];
+                bbCriar := (bbZonaAtivacao[bbZona] > bbZonaAtivacao[bbOutro])
+                  or ((bbZonaAtivacao[bbZona] = bbZonaAtivacao[bbOutro])
+                    and ((bbZonaOrigem[bbZona] > bbZonaOrigem[bbOutro])
+                      or ((bbZonaOrigem[bbZona] = bbZonaOrigem[bbOutro]) and (bbZonaOB[bbZona] > bbZonaOB[bbOutro]))));
+                if bbCriar then
+                begin
+                  if bbRankPos < bbOrdem then
+                    bbZonaRanking[bbRankPos + 1] := bbOutro;
+                  bbRankPos := bbRankPos - 1;
+                end;
+              end;
               if bbRankPos < bbOrdem then
-                bbZonaRanking[bbRankPos + 1] := bbOutro;
-              bbRankPos := bbRankPos - 1;
+              begin
+                bbZonaRanking[bbRankPos + 1] := bbZona;
+                if bbRank < bbOrdem then
+                  bbRank := bbRank + 1;
+              end;
             end;
           end;
-          if bbRankPos < bbOrdem then
-          begin
-            bbZonaRanking[bbRankPos + 1] := bbZona;
-            if bbRank < bbOrdem then
-              bbRank := bbRank + 1;
-          end;
         end;
+      end;
 
-      if bbRank >= bbOrdem then
-      begin
-        bbZona := bbZonaRanking[bbOrdem];
-        bbZonaCentro := (bbZonaLo[bbZona] + bbZonaHi[bbZona]) / 2;
-        bbZonaAltura := (bbZonaHi[bbZona] - bbZonaLo[bbZona]) / 2;
-        bbRotulo := "BB-";
+    bbVisualUltimo := bbRank;
+    for bbVisualPos := bbVisualPrimeiro to bbVisualUltimo do
+    begin
+      bbVisualLugar := bbVisualPos;
+      if ModoFaixaOB <> 0 then
+        bbVisualLugar := 1;
+      bbZona := bbZonaRanking[bbVisualPos];
+      bbRevLado := 1 + Round((bbZona - Mod(bbZona, BBCapacidade)) / BBCapacidade);
+      bbRevDir := 2 * (Mod(bbRevLado - 1, 2) + 1) - 3;
+      bbZonaCentro := (bbZonaLo[bbZona] + bbZonaHi[bbZona]) / 2;
+      bbZonaAltura := (bbZonaHi[bbZona] - bbZonaLo[bbZona]) / 2;
+      bbGeomMin := bbZonaLo[bbZona];
+      bbRotulo := "BB-";
+      bbCor := CorBBBaixa;
+      if CorBBBaixa = clRed then
         bbCor := RGB(255, 0, 0);
-        if bbRevDir = 1 then
-        begin
-          bbRotulo := "BB+";
+      if bbRevDir = 1 then
+      begin
+        bbGeomMin := bbZonaHi[bbZona];
+        bbRotulo := "BB+";
+        bbCor := CorBBAlta;
+        if CorBBAlta = clGreen then
           bbCor := RGB(0, 128, 0);
-        end;
-        if bbRevLado > 2 then
-          bbRotulo := bbRotulo + " S"
-        else
-          bbRotulo := bbRotulo + " I";
-        if bbZonaModelo[bbZona] = 0 then
-          bbRotulo := bbRotulo + " Strict"
-        else
-          bbRotulo := bbRotulo + " Flexible";
-        bbDataFim := 0;
-        if bbZonaHora[bbZona] <> 0 then
-          bbDataFim := bbZonaData[bbZona];
+      end;
+      if (bbZonaEstado[bbZona] = POIInvalidada) and (MostrarInvalidadasBB = 2) then
+      begin
+        bbCor := CorBBInvalidada;
+        if CorBBInvalidada = clGray then
+          bbCor := RGB(128, 128, 128);
+      end;
+      if bbRevLado > 2 then
+        bbRotulo := bbRotulo + " S"
+      else
+        bbRotulo := bbRotulo + " I";
+      if bbZonaModelo[bbZona] = 0 then
+        bbRotulo := bbRotulo + " Strict"
+      else
+        bbRotulo := bbRotulo + " Flexible";
+      if not MostrarRotuloBB then
+        bbRotulo := "";
+
+      bbVisualDataIni := bbZonaData[bbZona];
+      bbVisualHoraIni := bbZonaHora[bbZona];
+      bbVisualTermina := bbZonaFim[bbZona] >= 0;
+      bbVisualDataFim := dataCandle;
+      bbVisualHoraFim := horaCandle;
+      if bbVisualTermina then
+      begin
+        bbVisualDataFim := bbZonaFimData[bbZona];
+        bbVisualHoraFim := bbZonaFimHora[bbZona];
+      end;
+      bbVisualFimPrimeiro := bbVisualDataIni;
+      bbVisualHoraPrimeiro := 2359;
+      bbVisualIniMeio := CalcDate(bbVisualDataIni, 1);
+      bbVisualFimMeio := 0;
+      bbVisualMeioDias := bbVisualDataFim > bbVisualDataIni;
+      if bbVisualTermina then
+      begin
+        if bbVisualDataFim = bbVisualDataIni then
+          bbVisualHoraPrimeiro := bbVisualHoraFim;
+        bbVisualFimMeio := CalcDate(bbVisualDataFim, -1);
+        bbVisualMeioDias := bbVisualIniMeio <= bbVisualFimMeio;
+      end
+      else if bbVisualHoraIni = 0 then
+      begin
+        bbVisualFimPrimeiro := 0;
+        bbVisualMeioDias := False;
+      end;
+
+      // Cada zona tem chamadas fixas para as faixas e os segmentos.
+      if bbVisualLugar = 1 then
+      begin
         HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
-          bbZonaData[bbZona], bbDataFim, bbZonaAltura, bbZonaHora[bbZona], 2359);
-        if (bbZonaHora[bbZona] <> 0) and (dataCandle > bbZonaData[bbZona]) then
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
           HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
-            CalcDate(bbZonaData[bbZona], 1), 0, bbZonaAltura);
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 2 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 3 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 4 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 5 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 6 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 7 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 8 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 9 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 10 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 11 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 12 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 13 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 14 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 15 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 16 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 17 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 18 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 19 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
+      end
+      else if bbVisualLugar = 20 then
+      begin
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, bbZonaAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, bbZonaAltura);
+        if bbVisualTermina and (bbVisualDataFim > bbVisualDataIni) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            bbVisualDataFim, bbVisualDataFim, bbZonaAltura, 0, bbVisualHoraFim);
+        if MostrarMeioBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbVisualDataIni, bbVisualDataFim, not bbVisualTermina, "",
+            bbCor, 1, 2, 8, 1, bbVisualHoraIni, bbVisualHoraFim);
+        if MostrarOrigemOBBB then
+          LineSegment(bbZonaCentro, bbZonaCentro, bbZonaOrigemData[bbZona], bbVisualDataIni, False, "Origem OB",
+            bbCor, 1, 1, 8, 1, bbZonaOrigemHora[bbZona], bbVisualHoraIni);
+        if bbZonaReteste[bbZona] >= 0 then
+          LineSegment(bbGeomMin, bbGeomMin, bbZonaRetesteData[bbZona], bbZonaRetestePubData[bbZona], False, "Reteste BB",
+            bbCor, 1, 0, 8, 1, bbZonaRetesteHora[bbZona], bbZonaRetestePubHora[bbZona]);
       end;
     end;
   end;

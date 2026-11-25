@@ -1,6 +1,6 @@
 # 12B — Breaker Block estrutural
 
-Status: ready-for-human
+Status: aceita
 
 Depende do aceite da [12A](12A-breaker-compatibilidade.md). Cobre ICT Strict e SMC Flexible das seções E3 e E4 da [spec](../SPEC_evolucao.md#e-breaker-block--entrega-12).
 
@@ -15,7 +15,7 @@ Depende do aceite da [12A](12A-breaker-compatibilidade.md). Cobre ICT Strict e S
 
 ## Configuração e validação no Profit Pro
 
-Compilação e Replay pendentes.
+O usuário informou em 25/11/2026 que os testes da 12B passaram e autorizou a 12C. O aceite se refere ao commit `b214fd3` e ao SHA-256 abaixo. Um dos prints mostra `BB+ I Strict` no Profit. Versão do Profit, ativo, período e resultados individuais do Replay não foram informados.
 
 1. Compilar o fonte. Com `DebugSMC=False`, ligar `MostrarBBEstrutural` e selecionar `ModoBB=1` para Strict, `2` para Flexible ou `3` para ambos. Usar `FonteOBBB=0` para ICT ou `1` para LuxAlgo.
 2. Selecionar `ModoFaixaOB=9/10/11/12` para swing comprador, swing vendedor, interno comprador ou interno vendedor. Comparar o mesmo trecho entre modelos, alternar `OrdemFaixaSMC` e conferir publicação na próxima barra, faixa inteira e âncora.
