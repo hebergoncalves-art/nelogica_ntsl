@@ -25,6 +25,8 @@ const idmCommit = '20426dcaedbe529032950559484a2fbbea23c8e5';
 const acceptedIDMSource = execFileSync('git', ['show', `${idmCommit}:${path}`], { cwd: root });
 const liquidityCommit = '11b5e1b';
 const acceptedLiquiditySource = execFileSync('git', ['show', `${liquidityCommit}:${path}`], { cwd: root });
+const recoveryCommit = '1337ca4';
+const acceptedRecoverySource = execFileSync('git', ['show', `${recoveryCommit}:${path}`], { cwd: root });
 const candidate = readFileSync(join(root, path));
 const sha = (data) => createHash('sha256').update(data).digest('hex');
 
@@ -292,6 +294,7 @@ const acceptedPOI = compile(poiFlip);
 const acceptedAdvanced = compile(advancedFlip);
 const acceptedIDM = compile(acceptedIDMSource);
 const acceptedLiquidity = compile(acceptedLiquiditySource);
+const acceptedRecovery = compile(acceptedRecoverySource);
 const updated = compile(candidate);
 
 function dated(rows) {
@@ -391,10 +394,10 @@ function fact(lane, origin, price, previousBias = 0) {
 function stageFacts(model, bar, rows) {
   const frame = bar % 2;
   model.set('smclotes', rows.length, frame);
-  rows.forEach(({ lane, origin, price, previousBias }, offset) => {
+  rows.forEach(({ lane, origin, price, previousBias, ref = -1, hi = price }, offset) => {
     const slot = frame * model.get('smclote') + offset;
-    const values = { faixa: lane, origem: origin, ref: -1, nascimento: bar, estado: 1, lo: price,
-      hi: price, brutolo: previousBias, brutohi: lane % 2 === 1 ? 1 : -1 };
+    const values = { faixa: lane, origem: origin, ref, nascimento: bar, estado: 1, lo: price,
+      hi, brutolo: previousBias, brutohi: lane % 2 === 1 ? 1 : -1 };
     for (const [field, value] of Object.entries(values)) model.set('smcevento' + field, value, slot);
   });
 }
@@ -410,8 +413,12 @@ function scripted(closes, entries, overrides = {}, tick = 1) {
 }
 
 function liquidityFixture(rows, entries, { config = {}, historical = false, repeat = false,
-  program = updated, before = () => {}, tick = 1 } = {}) {
+  program = updated, before = () => {}, tick = 1, clock = {} } = {}) {
   const bars = dated(rows);
+  for (const [index, [date, time]] of Object.entries(clock)) {
+    bars[index][4] = date;
+    bars[index][5] = time;
+  }
   const model = runtime(program, bars, { PeriodoSwing: 500, HabilitarCapturasLiquidez: true,
     MostrarCapturasLiquidez: true, ...config }, tick);
   const trace = bars.map((_, index) => {
@@ -439,7 +446,7 @@ function liquidityArchive(model) {
     }
     return { side, ...fields('lq', ['id', 'estado', 'origemnivel', 'ticks', 'ativacao', 'fim',
       'publicacao', 'extremotomada', 'penetracaoticks', 'desfecho', 'barradesfecho',
-      'publicacaodesfecho', 'extremocaptura'], slot), sources };
+      'publicacaodesfecho', 'extremocaptura', 'confirmacao', 'confirmacaoem', 'confirmacaopublicacao'], slot), sources };
   }).filter(Boolean));
 }
 
@@ -685,9 +692,15 @@ const cases = {
       ['mostrarniveisliquidez', false], ['mostrarlinhacaptura', true], ['mostrarrotulolq', true],
       ['mostrarfontelq', true], ['maxcapturaslqvisiveis', 20],
     ]);
-    assert.deepEqual(Object.entries(updated.inputs).slice(Object.keys(acceptedLiquidity.inputs).length), [
+    assert.deepEqual(Object.entries(updated.inputs).slice(Object.keys(acceptedLiquidity.inputs).length,
+      Object.keys(acceptedRecovery.inputs).length), [
       ['mostrarsweep', true], ['mostrarstophunt', true], ['maxbarrasstophunt', 5], ['permitirgappadraolq', false],
       ['mostrarrupturapendente', false], ['mostrarbreaksemrecuperacao', false],
+    ]);
+    assert.deepEqual(Object.entries(updated.inputs).slice(Object.keys(acceptedRecovery.inputs).length), [
+      ['fonteeqh_eql', false], ['fontesessaoanterior', false], ['iniciosessaolq', 0], ['fimsessaolq', 0],
+      ['intervalosessaolq', 0], ['modoconfirmacaolq', 0], ['reacaoposcapturaatr', 0.5],
+      ['maxbarrasconfirmacaolq', 30], ['filtroidmflip', 0], ['filtrosweepflip', 0], ['modocapturaflip', 0],
     ]);
     for (const [name, value] of Object.entries(original.constants)) assert.equal(updated.constants[name], value, name);
     return 'hash de referência, 26 inputs e constantes legadas conferidos. Compilação PENDENTE';
@@ -2282,6 +2295,145 @@ const cases = {
       bars.forEach((_, index) => assert.deepEqual(current.step(index), previous.step(index)));
     }
     return 'paridade com a revisão aceita da 11A nos cinco modos com liquidez desligada';
+  },
+  C01() {
+    const config = { FonteEQH_EQL: true, FonteSwingExterno: false, FonteSwingInterno: false };
+    const rows = [[100, 110, 90, 100], [100, 111, 89, 100], [100, 109, 92, 100],
+      [100, 111, 89, 100], [100, 113, 87, 100], [100, 108, 93, 100]];
+    const events = { 3: [{ ...fact(15, 1, 110), ref: 0, hi: 111 }, { ...fact(16, 1, 90), ref: 0, hi: 89 }] };
+    const { model, trace } = liquidityFixture(rows, events, { config, repeat: true });
+    assert.deepEqual(liquidityArchive(model).map((level) => [level.ticks, level.origemnivel, level.ativacao, level.fim]),
+      [[111, 1, 3, 4], [89, 1, 3, 4]]);
+    assert.deepEqual(segments(trace.at(-1)).map((line) => line[6]), ['LG SSL · EQL', 'LG BSL · EQH']);
+    const invalid = liquidityFixture([...rows.slice(0, 3), [100, 112, 88, 100], ...rows.slice(4)], events, { config });
+    assert.deepEqual(liquidityArchive(invalid.model), []);
+    const bars = dated(Array.from({ length: 207 }, () => [105, 110, 100, 105]));
+    bars[200][1] = 111;
+    const native = runtime(updated, bars, { ...config, HabilitarCapturasLiquidez: true, MostrarEQHEQL: false, LimiarEQ: 0.5 });
+    const drawing = bars.map((_, index) => {
+      if (index === 203) {
+        native.set('pernaeq', 1);
+        native.set('temtopoeq', true);
+        native.set('topoeq', 111);
+        native.set('atrwilder', 10);
+        native.set('smcorigemeqtopo', 195);
+      }
+      return native.step(index);
+    });
+    assert.ok(liquidityArchive(native).some((level) => level.ticks === 111 && level.origemnivel === 195));
+    assert.ok(!labels(drawing).includes('EQH'));
+    return 'pools EQ dos dois lados, fonte oculta e rejeição por penetração antes da publicação';
+  },
+  C02() {
+    const date = 1261102;
+    const next = calcDate(date, 1);
+    const later = calcDate(date, 2);
+    const config = { FonteSessaoAnterior: true, InicioSessaoLQ: 2355, FimSessaoLQ: 10, IntervaloSessaoLQ: 5,
+      FonteSwingInterno: false, FonteSwingExterno: false };
+    const rows = [[100, 106, 94, 100], [100, 111, 92, 100], [100, 109, 87, 100], [100, 110, 95, 100],
+      [100, 112, 90, 105], [100, 109, 93, 100], [100, 109, 94, 100], [100, 108, 95, 100]];
+    const clock = { 0: [date, 2350], 1: [date, 2355], 2: [next, 0], 3: [next, 5],
+      4: [next, 10], 5: [next, 2355], 6: [later, 5], 7: [later, 10] };
+    const live = liquidityFixture(rows, {}, { clock, config, repeat: true });
+    const [bsl, ssl] = liquidityArchive(live.model);
+    assert.deepEqual([bsl.ticks, bsl.origemnivel, bsl.ativacao, bsl.fim], [111, 1, 3, 4]);
+    assert.deepEqual([ssl.ticks, ssl.origemnivel, ssl.ativacao, ssl.fim, ssl.estado], [87, 2, 3, 6, live.model.get('lqsemfonte')]);
+    assert.ok(segments(live.trace[5]).some((line) => line[6] === 'LG BSL · Sessão anterior'));
+    assert.deepEqual(liquidityArchive(liquidityFixture(rows, {}, { clock, config, historical: true }).model), [bsl, ssl]);
+    const incomplete = liquidityFixture(rows, {}, { clock: { ...clock, 2: [next, 1] }, config });
+    assert.deepEqual(liquidityArchive(incomplete.model), []);
+    return 'cobertura explícita, virada de data, sessão parcial e substituição das fontes';
+  },
+  C03() {
+    const rows = [[100, 110, 95, 100], [100, 109, 95, 100], [100, 108, 97, 105],
+      [106, 112, 99, 109], [108, 109, 105, 106], [106, 108, 93, 94], [103, 109, 97, 103]];
+    for (const side of [1, 2]) {
+      const mirror = (series) => side === 1 ? series : series.map(([o, h, l, c]) => [200 - o, 200 - l, 200 - h, 200 - c]);
+      const events = { 1: [fact(side + 2, 0, side === 1 ? 110 : 90), fact(3 - side, 0, side === 1 ? 95 : 105)] };
+      const config = { FonteSwingInterno: false, ReacaoPosCapturaATR: 0, MaxBarrasConfirmacaoLQ: 2 };
+      function observed(mode, history = rows, options = {}) {
+        const { model } = liquidityFixture(mirror(history), options.events ?? events,
+          { config: { ...config, ModoConfirmacaoLQ: mode, ...options.config }, repeat: true });
+        const [capture] = liquidityArchive(model);
+        assert.equal(capture.estado, model.get('lqgrab'));
+        return [capture.confirmacao, capture.confirmacaoem, capture.confirmacaopublicacao];
+      }
+      assert.deepEqual(observed(0), [0, -1, -1]);
+      assert.deepEqual(observed(1), [2, 4, 5]);
+      assert.deepEqual(observed(2), [2, 5, 6]);
+      assert.deepEqual(observed(2, rows, { config: { MaxBarrasConfirmacaoLQ: 1 } }), [5, 4, 5]);
+      assert.deepEqual(observed(2, rows, { events: { 1: [events[1][0]] } }), [3, 3, 4]);
+      assert.deepEqual(observed(1, [...rows.slice(0, 4), [106, 105, 101, 106], ...rows.slice(5)]), [4, 4, 5]);
+    }
+    return 'confirmação LQ espelhada nos modos 0/1/2, alvo causal, dados inválidos e prazo inclusivo';
+  },
+  C04() {
+    for (const side of [1, -1]) {
+      const config = { HabilitarFlip: true, HabilitarIDM: false, FiltroIDMFlip: 2, FiltroSweepFlip: 2 };
+      const local = idmLocalFixture(side, { config });
+      assert.equal(qualification(local).qualbarra, 16);
+      const refs = (fixture) => ['lqref', 'idmref'].map((field) =>
+        fixture.model.element('flipevento' + field, (fixture.lane - 1) * 100));
+      assert.deepEqual(refs(local), [-15, -15]);
+      const lower = { 15: [112, 114, 103, 113] };
+      const generic = { ...config, ModoCapturaFlip: 2, BufferRecuperacaoTicks: 14 };
+      const late = idmLocalFixture(side, { config: generic, lower, repeat: true });
+      assert.deepEqual([qualification(late).qualbarra, qualification(late).qualpublicacao], [17, 18]);
+      assert.equal(late.model.get('lqcalculooculto'), true);
+      assert.ok(refs(late)[0] > 0);
+      assert.equal(refs(late)[0], refs(late)[1]);
+      assert.equal(qualification(late).nota, 0);
+      assert.equal(qualification(idmLocalFixture(side, { config: { ...generic, ModoCapturaFlip: 1 }, lower })).qualbarra, -1);
+      assert.equal(qualification(idmLocalFixture(side, { config: { ...generic, MaxBarrasFVGFlip: 0 }, lower })).qualbarra, -1);
+      assert.equal(qualification(idmLocalFixture(side, { config: { ...generic, BufferRecuperacaoTicks: 0 }, lower })).qualbarra, 16);
+      const grab = idmLocalFixture(side, { config: { ...config, ModoCapturaFlip: 1 } });
+      assert.equal(qualification(grab).qualbarra, 16);
+      const idm = idmLocalFixture(side, { config: { ...config, ModoCapturaFlip: 1, HabilitarIDM: true } });
+      assert.equal(idm.model.element('idmcapturalq', side === 1 ? 200 : 300), refs(idm)[0]);
+    }
+    const optional = idmLocalFixture(-1, { config: { HabilitarFlip: true, HabilitarIDM: false,
+      ModoCapturaFlip: 1, FiltroSweepFlip: 1 } });
+    assert.equal(qualification(optional).qualbarra, 16);
+    assert.equal(optional.model.get('lqcalculooculto'), false);
+    const remembered = idmLocalFixture(-1, {
+      config: { HabilitarFlip: true, HabilitarIDM: false, FiltroSweepFlip: 2, ModoCapturaFlip: 1,
+        FiltroVolumeFlip: 2, PeriodoVolumeFlip: 2 },
+      lower: { 14: [110, 111, 105, 108, 10], 15: [109, 113, 103, 105, 10],
+        16: [108, 110, 95, 99, 10], 17: [99, 100, 95, 96, 30] },
+      before(model, index) {
+        if (index !== 18) return;
+        for (let slot = 0; slot < model.element('lqtotalniveis', 1); slot++) {
+          if (model.element('lqfim', slot) === 15) model.set('lqestado', model.get('lqlivre'), slot);
+        }
+      },
+    });
+    assert.equal(qualification(remembered).qualbarra, 17);
+    return 'filtros local, LG e SH, espera causal após B, fonte oculta e associação IDM sem circularidade';
+  },
+  C05() {
+    for (const side of [-1, 1]) {
+      const options = { side, events: { 14: [[1, 13, 122]] }, envelope: { 13: [110, 122, 106, 110] } };
+      const config = { ModoFalhaFlip: 2, ModoCapturaFlip: 1 };
+      const matched = poiFixture({ ...options, config });
+      assert.equal(qualification(matched).qualbarra, 15);
+      const ref = matched.model.element('flipeventolqextremoref', (matched.lane - 1) * 100);
+      assert.equal(liquidityArchive(matched.model).find((level) => level.id === ref).ticks, side === -1 ? 120 : 80);
+      const omitted = poiFixture({ ...options, config: { ...config, MinCapturaTicks: 3 } });
+      assert.equal(qualification(omitted).qualbarra, -1);
+    }
+    return 'varredura genérica do Flip exige tomada do preço exato de H0/L0';
+  },
+  C06() {
+    assert.equal(sha(acceptedRecoverySource), 'b04e993c1e9eddaf20c53805d2fed5f93f3970dfadb894475ad29eef2ad5f35c');
+    const bars = prices.slice(0, 430);
+    for (const HabilitarCapturasLiquidez of [true, false]) {
+      const config = { PeriodoSwing: 10, HabilitarFlip: true, MostrarFlip: true, HabilitarIDM: true,
+        MostrarIDM: true, ModoIDM: 3, HabilitarCapturasLiquidez, MostrarCapturasLiquidez: true, MostrarRupturaPendente: true };
+      const previous = runtime(acceptedRecovery, bars, config);
+      const current = runtime(updated, bars, config);
+      bars.forEach((_, index) => assert.deepEqual(current.step(index), previous.step(index)));
+    }
+    return 'paridade com a revisão aceita da 11B com as opções novas desligadas';
   },
   I07() {
     const options = { length: 21, envelope: { 18: [106, 110, 99, 108] } };

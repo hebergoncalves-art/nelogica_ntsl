@@ -1,6 +1,6 @@
 # 11B — Sweep e Stop Hunt
 
-Status: ready-for-human
+Status: aceita
 
 Depende do aceite da [11A](11A-niveis-liquidez.md) e cobre a [seção D2](../SPEC_evolucao.md#d2-swsh-11b).
 
@@ -27,7 +27,7 @@ Depende do aceite da [11A](11A-niveis-liquidez.md) e cobre a [seção D2](../SPE
 
 ## Validação no Profit Pro
 
-Compilação e Replay pendentes.
+O usuário informou em 24/11/2026 que os testes da 11B passaram e autorizou a 11C. O aceite se refere ao commit `1337ca4` e ao SHA-256 acima. Versão do Profit, ativo, período, parâmetros e resultados individuais não foram informados.
 
 1. Compilar a revisão acima e aplicar com `ModoFaixaOB=0`, `HabilitarCapturasLiquidez=True` e `MostrarCapturasLiquidez=True`.
 2. Conferir SW na primeira barra após a tomada, SH nas barras seguintes e recuperação no limite do prazo. Certificar que o gráfico publica o padrão apenas na barra seguinte à recuperação e que a linha termina no fechamento que recuperou o nível.
