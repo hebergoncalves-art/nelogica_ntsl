@@ -1,6 +1,6 @@
 # 10C — FLIP_LOCAL e POST_BOS
 
-Status: ready-for-human
+Status: aceita
 
 Depende do aceite da [10B](10B-gestao-idm.md) e cobre a [seção C3](../SPEC_evolucao.md#c3-outros-modelos-10c).
 
@@ -28,7 +28,7 @@ Depende do aceite da [10B](10B-gestao-idm.md) e cobre a [seção C3](../SPEC_evo
 
 ## Validação no Profit Pro
 
-Compilação e Replay pendentes.
+O usuário informou em 24/11/2026 que os testes da 10C passaram e autorizou a 11A. O aceite se refere ao SHA-256 acima, presente em `20426dc`. Versão do Profit, ativo, período, parâmetros e evidências individuais não foram informados.
 
 1. Compilar a revisão acima e aplicar com `ModoFaixaOB=0`, `HabilitarIDM=True` e `MostrarIDM=True`.
 2. No modo `1`, conferir compra e venda e anotar os candles do pivô confirmado, da tomada e da associação. Repetir com `HabilitarFlip=False` para conferir a dependência oculta. Alternar `ModoConfirmacaoIDM` entre 1 e 2 para checar reação após a associação e alvo já rompido.
