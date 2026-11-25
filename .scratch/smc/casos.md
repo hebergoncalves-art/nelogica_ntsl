@@ -91,3 +91,12 @@ O FVG de baixa vai de 102 a 106 e o Breaker de baixa de 100 a 110. A faixa apare
 - Se A tocar o OB e fechar novamente acima de 110, rejeitar o caso de baixa, mesmo com FVG. Rejeitar também FVG de direção contrária, FVG sem sobreposição ou apenas com toque, OB criado em A ou depois, mitigação anterior a A e C fechando em 100 ou acima dela.
 - Um fechamento posterior em 110 mantém o Breaker de baixa. Um fechamento acima de 110 retira a faixa na abertura da próxima barra. Aplicar a regra inversa ao Breaker de alta. Reavaliar um mesmo candle preserva a quantidade e a ordem.
 - Com mais de 100 Breakers ativos de uma direção, reter os 100 mais recentes. Conferir as ordens 1 e 2 e a seleção pela direção original do OB nos modos 1 e 2.
+
+## Candidatos a OB do Breaker estrutural
+
+Com tick 1, considere um topo em 115 confirmado na barra 2 e um fundo intermediário originado na barra 4 e confirmado na 7. A barra 4 abre em 106 e fecha em 102, com máxima 107 e mínima 100. A barra 5 fecha em 108. A barra 6 abre em 108 e fecha em 123, com máxima 124 e mínima 107. Com deslocamento válido e ruptura causal de 115 na barra 6, o candidato ICT congela 100–107, qualifica na 7 e publica o marcador na 8. Espelhar preços em torno de 120 e repetir nas duas escalas.
+
+- Se a barra 4 for doji e não houver outra vela contrária elegível, o ICT fica sem candidato. Com um OB legado de 101–106 criado pela ruptura da barra 6, o adaptador publica o marcador com `LUX_SOURCE` se a vela de origem for doji.
+- Se a barra 8 atingir 99 e fechar em 121, a remoção por pavio do OB legado preserva o registro qualificado com limites 101–106. Se fechar em 100, registrar remoção por fechamento. Se o OB for retirado antes de qualificar, o adaptador não publica marcador.
+- Um fechamento anterior a `u` abaixo da faixa rejeita o candidato. Um fechamento dentro da faixa preserva a saída anterior como evidência enquanto a borda oposta estiver intacta.
+- Com `DebugSMC=False`, conferir que os registros são produzidos e os marcadores ficam ocultos. Com `ModoBB=0`, comparar a faixa legada com a revisão aceita da 11C. [Tarefa 12A](tasks/12A-breaker-compatibilidade.md)

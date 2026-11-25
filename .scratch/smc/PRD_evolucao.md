@@ -41,6 +41,8 @@ Adicionar ao indicador existente Flip e suas faixas, Inducement, padrões de cap
 | 12C — BB gestão | visitas, mitigação, reteste, invalidação, cores/slots | 12B | ciclo de vida e desenho |
 | 13 — Integração final | Unicorn, scores, alertas e dependências dos filtros | 12C | testes combinados e release |
 
+A [tarefa 12A](tasks/12A-breaker-compatibilidade.md) registra a comparação com a 11C e a validação dos marcadores de candidatos a OB no Profit.
+
 As tarefas `tasks/08A-fundacao.md`, `09-flip.md`, `10-idm.md`, `11-liquidez.md`, `12-breaker.md` e `13-integracao.md` contêm os gates e casos. Não iniciar uma subentrega sem aprovação da anterior; não exigir que recursos de entregas futuras estejam disponíveis. Se uma subentrega for grande, separar cálculo e desenho em commits, mas só aprovar quando o resultado for observável e testado.
 
 ## 5. Requisitos transversais

@@ -16,6 +16,14 @@ const
   TotalEspacosBreaker = 300;
   QuadrosOBRemovidos = 5;
   TotalEspacosOBRemovidos = 500;
+  BBCapacidade = 100;
+  BBUltimo = 399;
+  BBAguardando = 1;
+  BBQualificado = 2;
+  BBEncerrado = 3;
+  BBLuxPavio = 1;
+  BBLuxFechamento = 2;
+  BBLuxDescarte = 3;
   // 08A: dois lotes de 320, com maximo de 315 fatos por barra:
   // 204 OB, 101 FVG, 6 estruturais, 1 EQ, 1 PD e 2 snapshots de fluxo.
   SMCLote = 320;
@@ -297,6 +305,16 @@ input
   FiltroIDMFlip(0);
   FiltroSweepFlip(0);
   ModoCapturaFlip(0);
+  // Em 12A, 1 STRICT / 2 FLEX / 3 BOTH calculam a mesma fundacao de OB.
+  ModoBB(0);
+  MostrarBBLegacy(True);
+  FonteOBBB(0);
+  EscalaBB(2);
+  MaxBuscaOrigemOBBB(20);
+  DispATRBB(1.0);
+  CorpoMinBB(0.65);
+  MaxCandlesDispBB(3);
+  MaxIdadeOBBB(150);
 
 var
   periodo, perna, vies : Integer;
@@ -351,6 +369,24 @@ var
   primeiroDiaIntermediarioPD, ultimoDiaIntermediarioPD : Integer;
 
   exibeFVG, calculaBreaker : Boolean;
+  bbCalcula, bbUsaLux, bbATRAnteriorValido, bbNovoMeio, bbSequenciaValida, bbCriar : Boolean;
+  bbLado, bbEscala, bbDirecao, bbBase, bbPos, bbPivo, bbHist, bbPiso, bbTeto : Integer;
+  bbOrigemNova, bbCriacaoNova, bbEscolhida, bbInicio, bbBarra, bbLag, bbK, bbDirecionais : Integer;
+  bbSlot, bbDestino, bbPrimeiroFato, bbUltimoFato, bbFato, bbFim, bbDistal, bbProximal : Integer;
+  bbPulso, bbMarco, bbCruzou, bbEscalaRuptura, bbCruzouOutra, bbIdTotal, bbSemVaga : Integer;
+  bbRupturaIA, bbRupturaIB, bbRupturaSA, bbRupturaSB, bbDispAlta, bbDispBaixa : Integer;
+  bbFatoRuptura, bbUsados, bbMeioOrigem, bbMeioRef, bbMeioPiso : array[1..4] of Integer;
+  bbEstado, bbID, bbOrigem, bbCriacao, bbIntermediario, bbIntermediarioRef : array[0..BBUltimo] of Integer;
+  bbSaida, bbDeslocamentoInicio, bbDeslocamentoFim, bbCruzamento, bbQuebra, bbQuebraEscala : array[0..BBUltimo] of Integer;
+  bbConfirmacao, bbPublicacao, bbRemocao, bbMotivoRemocao, bbFimRegistro : array[0..BBUltimo] of Integer;
+  bbFonte, bbFaixaEscala, bbFaixaDirecao : array[0..BBUltimo] of Integer;
+  bbLuxSource : array[0..BBUltimo] of Boolean;
+  bbLo, bbHi : array[0..BBUltimo] of Float;
+  bbMeioPreco : array[1..4] of Float;
+  bbIntermediarioPreco : array[0..BBUltimo] of Float;
+  bbATRAnterior, bbRange, bbRanges, bbCorpo, bbCorpos, bbPosicao, bbNovaLo, bbNovaHi : Float;
+  bbRotulo : String;
+  bbCor : Integer;
   ladoOrigemBreaker, quadroOBRemovido, indiceOBRemovido : Integer;
   carimbosOBRemovidos, quantidadesOBRemovidos : array[0..4] of Integer;
   criacoesOBRemovidos : array[1..TotalEspacosOBRemovidos] of Integer;
@@ -598,10 +634,15 @@ begin
     or (ModoFaixaOB = 3) or (ModoFaixaOB = 4);
   calculaEQ := (ModoFaixaOB = 0) and MostrarEQHEQL;
   exibeFVG := (ModoFaixaOB = 0) and MostrarFVG;
-  calculaBreaker := MostrarBreakerBlocks and ((ModoFaixaOB = 1) or (ModoFaixaOB = 2));
+  calculaBreaker := MostrarBreakerBlocks and MostrarBBLegacy and ((ModoFaixaOB = 1) or (ModoFaixaOB = 2));
+  bbCalcula := (ModoBB >= 1) and (ModoBB <= 3) and (FonteOBBB >= 0) and (FonteOBBB <= 1)
+    and (EscalaBB >= 0) and (EscalaBB <= 2) and (MaxBuscaOrigemOBBB >= 1) and (MaxBuscaOrigemOBBB <= 20)
+    and (DispATRBB >= 0) and (CorpoMinBB >= 0) and (CorpoMinBB <= 1)
+    and (MaxCandlesDispBB >= 1) and (MaxCandlesDispBB <= 3) and (MaxIdadeOBBB >= 0);
+  bbUsaLux := bbCalcula and (FonteOBBB = 1);
   calculaPD := ((ModoFaixaOB = 0) and MostrarZonasPD) or DebugSMC;
-  calculaOBInterno := calculaBlocosInternos or DebugSMC;
-  calculaOBSwing := calculaBlocosSwing or DebugSMC;
+  calculaOBInterno := calculaBlocosInternos or DebugSMC or (bbUsaLux and (EscalaBB <> 1));
+  calculaOBSwing := calculaBlocosSwing or DebugSMC or (bbUsaLux and (EscalaBB <> 0));
   flipConfigValida := (EscalaFlip >= 0) and (EscalaFlip <= 2)
     and (ReacaoMinFlipATR >= 0) and (MaxBarrasFlip >= 0);
   idmConfigValida := (ModoIDM >= 0) and (ModoIDM <= 3) and (MinPullbackIDMATR >= 0) and (MinReacaoIDMATR >= 0)
@@ -668,7 +709,7 @@ begin
     lqSessaoDuracao := Mod(lqSessaoFimMin - lqSessaoInicioMin + 1440, 1440);
     lqSessaoValida := Mod(lqSessaoDuracao, IntervaloSessaoLQ) = 0;
   end;
-  smcCalcula := DebugSMC or flipCalcula or idmCalcula or lqCalcula;
+  smcCalcula := DebugSMC or flipCalcula or idmCalcula or lqCalcula or bbCalcula;
 
   smcColeta := False;
   if smcCalcula then
@@ -678,6 +719,16 @@ begin
     if CurrentBar = 0 then
     begin
       smcUltimaPublicacao := -1;
+      if bbCalcula then
+      begin
+        bbIdTotal := 0;
+        bbSemVaga := 0;
+        for bbLado := 1 to 4 do
+        begin
+          bbUsados[bbLado] := 0;
+          bbMeioRef[bbLado] := -1;
+        end;
+      end;
       smcOrigemPublicada := -1;
       smcPublicados := 0;
       smcReciclados := 0;
@@ -1020,7 +1071,7 @@ begin
     end;
   end;
 
-  if (MostrarEstruturaInterna or calculaOBInterno or idmCalcula or lqObservaIDMLocal
+  if (MostrarEstruturaInterna or calculaOBInterno or idmCalcula or lqObservaIDMLocal or bbCalcula
     or (lqCalcula and (FonteSwingInterno or (ModoConfirmacaoLQ = 2)))
     or (flipCalcula and (EscalaFlip <> 1))
     or (poiCalcula and (ModoRetesteFlip = 2)))
@@ -2600,6 +2651,8 @@ begin
 
       for smcLado := 1 to 4 do
       begin
+        if bbCalcula then
+          bbFatoRuptura[smcLado] := 0;
         smcPivoNaBarra[smcLado] := -1;
         smcBreakNaBarra[smcLado] := -1;
         if flipCalcula then
@@ -2751,6 +2804,8 @@ begin
           // Uma ruptura causal usa somente contexto disponivel antes da barra.
           if smcResultado = SMCQualificado then
           begin
+            if bbCalcula then
+              bbFatoRuptura[smcLado] := smcEventoNascimento[smcQuebra] + 1;
             if idmPosBOS and (smcEscala = 1) then
               idmQuebraSwing := True;
             smcQuebraOrigem := smcEventoOrigem[smcQuebra];
@@ -5181,9 +5236,401 @@ begin
           end;
         end;
       end;
+      // 12A: guardar fatos causais da barra fechada antes de associar o OB.
+      if bbCalcula then
+      begin
+        bbRupturaIA := bbFatoRuptura[1];
+        bbRupturaIB := bbFatoRuptura[2];
+        bbRupturaSA := bbFatoRuptura[3];
+        bbRupturaSB := bbFatoRuptura[4];
+        bbATRAnterior := idmATRAnterior;
+        bbATRAnteriorValido := idmATRAnteriorValido;
+        bbDispAlta := 0;
+        bbDispBaixa := 0;
+        for bbLado := 1 to 2 do
+        begin
+          bbDirecao := 3 - 2 * bbLado;
+          bbPulso := 0;
+          if smcBarraValida and ((Close[1] - Open[1]) * bbDirecao > 0) then
+          begin
+            bbCorpos := 0;
+            bbRanges := 0;
+            bbDirecionais := 0;
+            bbSequenciaValida := True;
+            bbPosicao := (Close[1] - Low[1]) * 4;
+            if bbDirecao = -1 then
+              bbPosicao := (High[1] - Close[1]) * 4;
+            bbFim := Min(MaxCandlesDispBB, smcBarrasValidas);
+            for bbK := 1 to bbFim do
+              if bbPulso = 0 then
+              begin
+                bbRange := High[bbK] - Low[bbK];
+                bbCorpo := (Close[bbK] - Open[bbK]) * bbDirecao;
+                bbSequenciaValida := bbSequenciaValida and (bbRange > 0);
+                bbRanges := bbRanges + bbRange;
+                bbCorpos := bbCorpos + bbCorpo;
+                if bbCorpo > 0 then
+                  bbDirecionais := bbDirecionais + 1;
+                if bbSequenciaValida and (bbDirecionais * 2 >= bbK)
+                  and ((DispATRBB = 0) or bbATRAnteriorValido[bbK - 1])
+                  and (bbCorpos >= Max(smcTick, DispATRBB * bbATRAnterior[bbK - 1]))
+                  and (bbCorpos >= CorpoMinBB * bbRanges) and (bbPosicao >= (High[1] - Low[1]) * 3) then
+                  bbPulso := bbK;
+              end;
+          end;
+          if bbDirecao = 1 then
+            bbDispAlta := bbPulso
+          else
+            bbDispBaixa := bbPulso;
+        end;
+
+        for bbLado := 1 to 4 do
+        begin
+          bbEscala := 0;
+          if bbLado > 2 then
+            bbEscala := 1;
+          if (EscalaBB = 2) or (EscalaBB = bbEscala) then
+          begin
+            bbDirecao := 1;
+            if Mod(bbLado, 2) = 0 then
+              bbDirecao := -1;
+            bbBase := (bbLado - 1) * BBCapacidade;
+            bbNovoMeio := False;
+            bbOrigemNova := -1;
+
+            // H1 e L1 sao pivos admitidos pelo historico causal, opostos a direcao do OB.
+            bbPos := smcHistTotal[bbEscala] - 1;
+            if bbPos >= 0 then
+            begin
+              bbPivo := bbEscala * SMCHistPivos + Mod(smcHistInicio[bbEscala] + bbPos, SMCHistPivos);
+              if (smcHistConfirmacao[bbPivo] = smcBarra) and (smcHistLado[bbPivo] = -bbDirecao) then
+              begin
+                bbNovoMeio := True;
+                bbMeioOrigem[bbLado] := smcHistOrigem[bbPivo];
+                bbMeioRef[bbLado] := smcBarra;
+                bbMeioPreco[bbLado] := smcHistPreco[bbPivo];
+                bbMeioPiso[bbLado] := -1;
+                bbHist := 0;
+                if bbUsaLux then
+                  bbHist := bbEscala;
+                bbPos := smcHistTotal[bbHist] - 1;
+                while (bbPos >= 0) and (bbMeioPiso[bbLado] < 0) do
+                begin
+                  bbPivo := bbHist * SMCHistPivos + Mod(smcHistInicio[bbHist] + bbPos, SMCHistPivos);
+                  if (smcHistOrigem[bbPivo] < bbMeioOrigem[bbLado]) and (smcHistLado[bbPivo] = bbDirecao) then
+                    bbMeioPiso[bbLado] := smcHistOrigem[bbPivo];
+                  bbPos := bbPos - 1;
+                end;
+              end;
+            end;
+
+            // Selecionar origem ICT uma vez, com toda a janela causal ja fechada.
+            if not bbUsaLux and bbNovoMeio and (bbMeioPiso[bbLado] >= 0) then
+            begin
+              bbTeto := bbMeioOrigem[bbLado];
+              bbPiso := Max(bbMeioPiso[bbLado], bbTeto - MaxBuscaOrigemOBBB + 1);
+              bbEscolhida := bbTeto + 1;
+              bbLag := CurrentBar - bbEscolhida;
+              if (bbLag >= 1) and (smcBarrasValidas >= CurrentBar - bbPiso) then
+              begin
+                bbCriar := ((Close[bbLag] - Open[bbLag]) * bbDirecao < 0)
+                  and (Min(High[bbLag], High[bbLag + 1]) > Max(Low[bbLag], Low[bbLag + 1]));
+                bbInicio := bbEscolhida;
+                while bbCriar and (bbInicio <= smcBarra) and (bbInicio < bbEscolhida + MaxCandlesDispBB) do
+                begin
+                  bbLag := CurrentBar - bbInicio;
+                  if bbDirecao = 1 then
+                    bbPulso := bbDispAlta[bbLag - 1]
+                  else
+                    bbPulso := bbDispBaixa[bbLag - 1];
+                  // A barra extra pode ser base somente se preceder o impulso.
+                  if (bbPulso > 0) and (bbInicio - bbPulso + 1 = bbEscolhida) then
+                    bbCriar := False;
+                  bbInicio := bbInicio + 1;
+                end;
+                if not bbCriar then
+                  bbEscolhida := bbTeto;
+                while (bbEscolhida >= bbPiso) and (bbOrigemNova < 0) do
+                begin
+                  bbLag := CurrentBar - bbEscolhida;
+                  if (Close[bbLag] - Open[bbLag]) * bbDirecao < 0 then
+                    bbOrigemNova := bbEscolhida;
+                  bbEscolhida := bbEscolhida - 1;
+                end;
+              end;
+            end;
+
+            // Remocoes vem do lote fechado, inclusive quando o desenho legado esta oculto.
+            if bbUsaLux then
+              for bbFato := smcPrimeiro to smcUltimo do
+                if (smcEventoFaixa[bbFato] = bbLado + 8) and (smcEventoNascimento[bbFato] < smcBarra)
+                  and ((smcEventoEstado[bbFato] = SMCMitigado) or (smcEventoEstado[bbFato] = SMCDescarte)) then
+                begin
+                  bbFim := bbBase + bbUsados[bbLado] - 1;
+                  for bbSlot := bbBase to bbFim do
+                    if (bbCriacao[bbSlot] = smcEventoNascimento[bbFato])
+                      and (bbOrigem[bbSlot] = smcEventoOrigem[bbFato]) then
+                    begin
+                      bbRemocao[bbSlot] := smcBarra;
+                      bbMotivoRemocao[bbSlot] := BBLuxDescarte;
+                      if smcEventoEstado[bbFato] = SMCMitigado then
+                      begin
+                        bbMotivoRemocao[bbSlot] := BBLuxPavio;
+                        if MitigarPorFechamento or ((bbDirecao = 1) and (Close[1] < smcEventoLo[bbFato]))
+                          or ((bbDirecao = -1) and (Close[1] > smcEventoHi[bbFato])) then
+                          bbMotivoRemocao[bbSlot] := BBLuxFechamento;
+                      end;
+                      if bbEstado[bbSlot] = BBAguardando then
+                      begin
+                        bbEstado[bbSlot] := BBEncerrado;
+                        bbFimRegistro[bbSlot] := smcBarra;
+                      end;
+                    end;
+                end;
+
+            bbFim := bbBase + bbUsados[bbLado] - 1;
+            for bbSlot := bbBase to bbFim do
+            begin
+              bbMarco := Max(bbCriacao[bbSlot], bbConfirmacao[bbSlot]);
+              if ((bbEstado[bbSlot] <> BBEncerrado) and (MaxIdadeOBBB > 0) and (smcBarra - bbMarco > MaxIdadeOBBB))
+                or ((bbEstado[bbSlot] = BBAguardando) and bbNovoMeio and (bbIntermediarioRef[bbSlot] >= 0)
+                  and (bbIntermediarioRef[bbSlot] <> bbMeioRef[bbLado])) then
+              begin
+                bbEstado[bbSlot] := BBEncerrado;
+                bbFimRegistro[bbSlot] := smcBarra;
+              end;
+            end;
+
+            // A origem ICT entra como um fato proprio. Lux usa o nascimento real do legado.
+            bbPrimeiroFato := -1;
+            bbUltimoFato := -2;
+            if bbUsaLux then
+            begin
+              bbPrimeiroFato := smcPrimeiro;
+              bbUltimoFato := smcUltimo;
+            end
+            else if bbOrigemNova >= 0 then
+              bbUltimoFato := -1;
+            for bbFato := bbPrimeiroFato to bbUltimoFato do
+            begin
+              bbCriar := bbFato = -1;
+              if bbFato >= 0 then
+                bbCriar := (smcEventoFaixa[bbFato] = bbLado + 8) and (smcEventoNascimento[bbFato] = smcBarra)
+                  and (smcEventoEstado[bbFato] = SMCAtivo) and smcEventoDadosValidos[bbFato];
+              if bbCriar then
+              begin
+                bbCriacaoNova := smcBarra;
+                if bbFato >= 0 then
+                begin
+                  bbOrigemNova := smcEventoOrigem[bbFato];
+                  bbNovaLo := Min(smcEventoLo[bbFato], smcEventoHi[bbFato]);
+                  bbNovaHi := Max(smcEventoLo[bbFato], smcEventoHi[bbFato]);
+                end
+                else
+                begin
+                  bbLag := CurrentBar - bbOrigemNova;
+                  bbNovaLo := Low[bbLag];
+                  bbNovaHi := High[bbLag];
+                end;
+                bbLag := CurrentBar - bbOrigemNova;
+                if (bbOrigemNova >= 0) and (bbLag >= 1) and (smcBarrasValidas >= bbLag)
+                  and (Round(bbNovaHi / smcTick) > Round(bbNovaLo / smcTick)) then
+                begin
+                  bbDestino := -1;
+                  if bbUsados[bbLado] < BBCapacidade then
+                  begin
+                    bbDestino := bbBase + bbUsados[bbLado];
+                    bbUsados[bbLado] := bbUsados[bbLado] + 1;
+                  end
+                  else
+                  begin
+                    bbFim := bbBase + BBCapacidade - 1;
+                    for bbSlot := bbBase to bbFim do
+                      if (bbEstado[bbSlot] = BBEncerrado) and ((not bbUsaLux) or (bbRemocao[bbSlot] >= 0)) then
+                      begin
+                        if bbDestino < 0 then
+                          bbDestino := bbSlot
+                        else if (bbFimRegistro[bbSlot] < bbFimRegistro[bbDestino])
+                          or ((bbFimRegistro[bbSlot] = bbFimRegistro[bbDestino]) and (bbID[bbSlot] < bbID[bbDestino])) then
+                          bbDestino := bbSlot;
+                      end;
+                  end;
+                  if bbDestino >= 0 then
+                  begin
+                    bbIdTotal := bbIdTotal + 1;
+                    bbID[bbDestino] := bbIdTotal;
+                    bbFonte[bbDestino] := FonteOBBB;
+                    bbFaixaEscala[bbDestino] := bbEscala;
+                    bbFaixaDirecao[bbDestino] := bbDirecao;
+                    bbEstado[bbDestino] := BBAguardando;
+                    bbOrigem[bbDestino] := bbOrigemNova;
+                    bbCriacao[bbDestino] := bbCriacaoNova;
+                    bbLo[bbDestino] := bbNovaLo;
+                    bbHi[bbDestino] := bbNovaHi;
+                    bbLuxSource[bbDestino] := bbUsaLux and ((Close[bbLag] - Open[bbLag]) * bbDirecao >= 0);
+                    bbIntermediarioRef[bbDestino] := -1;
+                    bbSaida[bbDestino] := -1;
+                    bbDeslocamentoInicio[bbDestino] := -1;
+                    bbDeslocamentoFim[bbDestino] := -1;
+                    bbCruzamento[bbDestino] := -1;
+                    bbQuebra[bbDestino] := -1;
+                    bbQuebraEscala[bbDestino] := -1;
+                    bbConfirmacao[bbDestino] := -1;
+                    bbPublicacao[bbDestino] := -1;
+                    bbRemocao[bbDestino] := -1;
+                    bbMotivoRemocao[bbDestino] := 0;
+                    bbFimRegistro[bbDestino] := -1;
+                  end
+                  else
+                    bbSemVaga := bbSemVaga + 1;
+                end;
+              end;
+            end;
+
+            bbFim := bbBase + bbUsados[bbLado] - 1;
+            for bbSlot := bbBase to bbFim do
+              if bbEstado[bbSlot] = BBAguardando then
+              begin
+                bbInicio := smcBarra;
+                if (bbIntermediarioRef[bbSlot] < 0) and (bbMeioRef[bbLado] >= 0)
+                  and (bbMeioPiso[bbLado] >= 0) then
+                begin
+                  bbTeto := bbMeioOrigem[bbLado] + 1;
+                  bbPiso := bbMeioPiso[bbLado];
+                  if (bbOrigem[bbSlot] >= bbPiso) and (bbOrigem[bbSlot] <= bbTeto)
+                    and (bbCriacao[bbSlot] >= bbMeioOrigem[bbLado]) then
+                  begin
+                    bbIntermediario[bbSlot] := bbMeioOrigem[bbLado];
+                    bbIntermediarioRef[bbSlot] := bbMeioRef[bbLado];
+                    bbIntermediarioPreco[bbSlot] := bbMeioPreco[bbLado];
+                    bbInicio := bbOrigem[bbSlot] + 1;
+                  end;
+                end;
+
+                if not smcBarraValida or ((bbIntermediarioRef[bbSlot] >= 0) and (smcBarrasValidas < CurrentBar - bbInicio)) then
+                begin
+                  bbEstado[bbSlot] := BBEncerrado;
+                  bbFimRegistro[bbSlot] := smcBarra;
+                end;
+
+                if (bbEstado[bbSlot] = BBAguardando) and (bbIntermediarioRef[bbSlot] >= 0) then
+                begin
+                  bbDistal := Round(bbLo[bbSlot] / smcTick) * bbDirecao;
+                  bbProximal := Round(bbHi[bbSlot] / smcTick) * bbDirecao;
+                  if bbDirecao = -1 then
+                  begin
+                    bbDistal := Round(bbHi[bbSlot] / smcTick) * bbDirecao;
+                    bbProximal := Round(bbLo[bbSlot] / smcTick) * bbDirecao;
+                  end;
+                  bbPiso := Max(bbOrigem[bbSlot], bbIntermediario[bbSlot]);
+                  for bbBarra := bbInicio to smcBarra do
+                    if bbEstado[bbSlot] = BBAguardando then
+                    begin
+                      bbLag := CurrentBar - bbBarra;
+                      bbMarco := Round(Close[bbLag] / smcTick) * bbDirecao;
+                      if bbMarco < bbDistal then
+                      begin
+                        bbEstado[bbSlot] := BBEncerrado;
+                        bbFimRegistro[bbSlot] := bbBarra;
+                      end
+                      else if bbBarra > bbPiso then
+                      begin
+                        if (bbSaida[bbSlot] < 0) and (bbMarco > bbProximal) then
+                          bbSaida[bbSlot] := bbBarra;
+                        if bbDirecao = 1 then
+                        begin
+                          bbPulso := bbDispAlta[bbLag - 1];
+                          bbCruzou := bbRupturaIA[bbLag - 1] - 1;
+                          bbCruzouOutra := bbRupturaSA[bbLag - 1] - 1;
+                        end
+                        else
+                        begin
+                          bbPulso := bbDispBaixa[bbLag - 1];
+                          bbCruzou := bbRupturaIB[bbLag - 1] - 1;
+                          bbCruzouOutra := bbRupturaSB[bbLag - 1] - 1;
+                        end;
+                        if (bbDeslocamentoFim[bbSlot] < 0) and (bbPulso > 0)
+                          and (bbBarra - bbPulso + 1 > bbPiso) then
+                        begin
+                          bbDeslocamentoInicio[bbSlot] := bbBarra - bbPulso + 1;
+                          bbDeslocamentoFim[bbSlot] := bbBarra;
+                        end;
+
+                        if bbQuebra[bbSlot] < 0 then
+                        begin
+                          bbEscalaRuptura := bbEscala;
+                          if bbEscala = 1 then
+                          begin
+                            bbEscolhida := bbCruzouOutra;
+                            bbCruzouOutra := bbCruzou;
+                            bbCruzou := bbEscolhida;
+                          end;
+                          if not bbUsaLux and (bbCruzou <= bbPiso) then
+                          begin
+                            bbCruzou := bbCruzouOutra;
+                            bbEscalaRuptura := 1 - bbEscala;
+                          end;
+                          if (bbCruzou > bbPiso) and ((not bbUsaLux) or (bbCruzou = bbCriacao[bbSlot])) then
+                          begin
+                            bbCruzamento[bbSlot] := bbCruzou;
+                            bbQuebra[bbSlot] := bbBarra;
+                            bbQuebraEscala[bbSlot] := bbEscalaRuptura;
+                          end;
+                        end;
+
+                        if (bbBarra = smcBarra) and (bbSaida[bbSlot] >= 0)
+                          and (bbDeslocamentoFim[bbSlot] >= 0) and (bbQuebra[bbSlot] >= 0) then
+                        begin
+                          bbEstado[bbSlot] := BBQualificado;
+                          bbConfirmacao[bbSlot] := smcBarra;
+                          bbPublicacao[bbSlot] := CurrentBar;
+                        end;
+                      end;
+                    end;
+                end;
+              end;
+          end;
+        end;
+      end;
       smcTemAnterior := smcBarraValida;
     end;
   end;
+
+
+  if bbCalcula and DebugSMC and (CurrentBar > 0) then
+    for bbLado := 1 to 4 do
+    begin
+      bbBase := (bbLado - 1) * BBCapacidade;
+      bbFim := bbBase + bbUsados[bbLado] - 1;
+      for bbSlot := bbBase to bbFim do
+        if bbPublicacao[bbSlot] = CurrentBar then
+        begin
+          bbRotulo := "OB BB ICT";
+          if bbFonte[bbSlot] = 1 then
+          begin
+            bbRotulo := "OB BB LUX";
+            if bbLuxSource[bbSlot] then
+              bbRotulo := "OB BB LUX_SOURCE";
+          end;
+          if bbFaixaEscala[bbSlot] = 0 then
+            bbRotulo := bbRotulo + " I"
+          else
+            bbRotulo := bbRotulo + " S";
+          if bbFaixaDirecao[bbSlot] = 1 then
+          begin
+            bbRotulo := bbRotulo + " +";
+            bbCor := clGreen;
+            bbNovaLo := bbLo[bbSlot];
+          end
+          else
+          begin
+            bbRotulo := bbRotulo + " -";
+            bbCor := clRed;
+            bbNovaLo := bbHi[bbSlot];
+          end;
+          PlotText(bbRotulo, bbCor, 3, 8, bbNovaLo);
+        end;
+    end;
 
   // Cada posição visual tem uma chamada fixa, como no desenho do IDM.
   if lqCalcula and HabilitarCapturasLiquidez and (ModoFaixaOB = 0) and LastBarOnChart and (CurrentBar > 0)
