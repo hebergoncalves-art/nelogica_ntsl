@@ -1,6 +1,6 @@
 # 11C — Liquidez avançada e integração com Flip e IDM
 
-Status: ready-for-human
+Status: aceita
 
 Depende do aceite da [11B](11B-recuperacao-liquidez.md) e cobre a [seção D3](../SPEC_evolucao.md#d3-fontes-e-integrações-11c).
 
@@ -26,7 +26,7 @@ Depende do aceite da [11B](11B-recuperacao-liquidez.md) e cobre a [seção D3](.
 
 ## Validação no Profit Pro
 
-Compilação e Replay pendentes.
+O usuário informou em 24/11/2026 que os testes da 11C passaram e autorizou a 12A. O aceite se refere ao commit `6fad88b` e ao SHA-256 acima. Versão do Profit, ativo, período, parâmetros e resultados individuais não foram informados.
 
 1. Compilar a revisão acima e aplicar com `ModoFaixaOB=0`. Ligar a liquidez e `FonteEQH_EQL`, mantendo o rótulo legado oculto. Conferir a confirmação do par, o nível selecionado e a publicação do padrão.
 2. Ligar `FonteSessaoAnterior` e informar início, fim e intervalo do gráfico intradiário. Conferir uma sessão completa, uma parcial e a virada de data para um horário que cruze meia-noite.
