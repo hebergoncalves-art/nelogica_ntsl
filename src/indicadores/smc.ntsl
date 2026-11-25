@@ -24,6 +24,16 @@ const
   BBLuxPavio = 1;
   BBLuxFechamento = 2;
   BBLuxDescarte = 3;
+  BBTotal = 400;
+  BBRevUltimo = 799;
+  BBRevEspera = 1;
+  BBRevAtivo = 2;
+  BBRevContexto = 3;
+  BBRevPrazo = 4;
+  BBRevCapturaInvalida = 5;
+  BBRevGap = 6;
+  BBRevSemDeslocamento = 7;
+  BBRevDadosInvalidos = 8;
   // 08A: dois lotes de 320, com maximo de 315 fatos por barra:
   // 204 OB, 101 FVG, 6 estruturais, 1 EQ, 1 PD e 2 snapshots de fluxo.
   SMCLote = 320;
@@ -132,9 +142,9 @@ const
   IDMCandidato = 14;
 
   LQCapacidadeNiveis = 100;
-  LQUltimoNivel = 199;
+  LQUltimoNivel = 399;
   LQCapacidadeFontes = 600;
-  LQUltimaFonte = 1199;
+  LQUltimaFonte = 2399;
   LQLimiteVisual = 20;
   LQUltimoVisual = 40;
   LQLivre = 0;
@@ -305,7 +315,7 @@ input
   FiltroIDMFlip(0);
   FiltroSweepFlip(0);
   ModoCapturaFlip(0);
-  // Em 12A, 1 STRICT / 2 FLEX / 3 BOTH calculam a mesma fundacao de OB.
+  // 0 LEGACY, 1 ICT STRICT, 2 SMC FLEXIBLE, 3 BOTH.
   ModoBB(0);
   MostrarBBLegacy(True);
   FonteOBBB(0);
@@ -315,6 +325,24 @@ input
   CorpoMinBB(0.65);
   MaxCandlesDispBB(3);
   MaxIdadeOBBB(150);
+  MostrarBBEstrutural(False);
+  OrdemFaixaSMC(1);
+  MostrarBBComprador(True);
+  MostrarBBVendedor(True);
+  TipoQuebraBB(0);
+  AceitarLG(True);
+  AceitarSW(True);
+  AceitarSH(True);
+  ExigirOBFresh(False);
+  MinReacaoBBATR(0.5);
+  BufferFalhaOBTicks(1);
+  BufferEstruturaBBTicks(1);
+  MaxBarrasOBParaCaptura(80);
+  MaxBarrasCapturaQuebra(30);
+  MaxBarrasEntreQuebras(10);
+  PermitirGapBB(False);
+  FiltroCapturaFlexBB(0);
+  FiltroDispReversaoFlexBB(0);
 
 var
   periodo, perna, vies : Integer;
@@ -387,6 +415,29 @@ var
   bbATRAnterior, bbRange, bbRanges, bbCorpo, bbCorpos, bbPosicao, bbNovaLo, bbNovaHi : Float;
   bbRotulo : String;
   bbCor : Integer;
+  // Candidatos de reversao por modelo. Zonas publicadas sobrevivem a reciclagem do OB.
+  bbRevCalcula, bbPrecisaLQ, bbRequerCaptura, bbRequerDisp, bbBuscaCaptura, bbBuscaDisp,
+    bbTomou, bbAmbiguo, bbPodeTomar, bbGapFalha, bbFreshAntes, bbSemConsumo : Boolean;
+  bbModelo, bbRevSlot, bbRevDir, bbRevLado, bbRevFim, bbRevFonte, bbRevNivel, bbRevNivelFim,
+    bbRevLadoLQ, bbRefTicks, bbMeioTicks, bbFalhaTicks, bbDistalTicks, bbDistFalha, bbDistMeio, bbDistExtremo,
+    bbPenetrou, bbLimiteEstrutura, bbLimiteFalha, bbAncora, bbInicioDisp, bbFimQuebras,
+    bbClassificacao, bbNovoEstado, bbZona, bbZonaFatos, bbOrdem, bbRank, bbRankPos, bbOutro,
+    bbDataFim, bbTipoFonteLQ, bbDispoLQ : Integer;
+  bbZonaCentro, bbZonaAltura : Float;
+  bbFluxoAnterior, bbProtecaoAnterior, bbPerdaProtecao, bbFluxoMotivo : array[0..1] of Integer;
+  bbMeioExtremoRef, bbMeioExtremoOrigem, bbMeioExtremoTicks, bbZonaUsados, bbZonaProximo : array[1..4] of Integer;
+  bbFatoRupturaRef : array[1..4] of Integer;
+  bbExtremoRef, bbExtremoOrigem, bbExtremoTicks, bbZonaVinculo : array[0..BBUltimo] of Integer;
+  bbFresh, bbConhecidoAntes : array[0..BBUltimo] of Boolean;
+  bbRevEstado, bbRevTomada, bbRevRecuperacao, bbRevCaptura, bbRevTipoCaptura, bbRevNivelLQ, bbRevExtremoCaptura,
+    bbRevFalha, bbRevQuebra, bbRevDispInicio, bbRevDispFim : array[0..BBRevUltimo] of Integer;
+  bbRevCruzouMeio : array[0..BBRevUltimo] of Boolean;
+  bbZonaOB, bbZonaOrigem, bbZonaAtivacao, bbZonaPublicacao, bbZonaData, bbZonaHora,
+    bbZonaModelo, bbZonaFonte, bbZonaMeioRef, bbZonaExtremoRef : array[0..BBUltimo] of Integer;
+  bbZonaLo, bbZonaHi : array[0..BBUltimo] of Float;
+  bbZonaConfirmou, bbZonaFalha, bbZonaQuebra, bbZonaTomada, bbZonaRecuperacao, bbZonaCaptura,
+    bbZonaTipoCaptura, bbZonaDispInicio, bbZonaDispFim : array[0..BBRevUltimo] of Integer;
+  bbZonaRanking : array[1..BBCapacidade] of Integer;
   ladoOrigemBreaker, quadroOBRemovido, indiceOBRemovido : Integer;
   carimbosOBRemovidos, quantidadesOBRemovidos : array[0..4] of Integer;
   criacoesOBRemovidos : array[1..TotalEspacosOBRemovidos] of Integer;
@@ -592,7 +643,9 @@ var
   lqDiaInicio, lqHoraInicio, lqDiaDireita, lqHoraDireita, lqCor, lqEstilo : Integer;
   lqIdadeRecuperacao, lqMomentoTerminal, lqMomentoOutro : Integer;
   lqRotulo, lqNomeLado : String;
-  lqTotalNiveis, lqTotalFontes, lqFontesLivres, lqDiagnostico, lqBarraDiagnostico : array[1..2] of Integer;
+  lqTotalNiveis, lqTotalFontes, lqFontesLivres, lqDiagnostico, lqBarraDiagnostico : array[1..4] of Integer;
+  lqPublico, lqPrivadoBB, lqConfigValida : Boolean;
+  lqUltimoLado, lqIDLadoBB : Integer;
   lqID, lqEstado, lqOrigemNivel, lqTicks, lqPrimeiraFonte, lqAtivacao, lqDia, lqHora : array[0..LQUltimoNivel] of Integer;
   lqFim, lqDiaFim, lqHoraFim, lqExtremoTomada, lqPenetracaoTicks, lqPublicacao,
     lqDiaPublicacao, lqHoraPublicacao : array[0..LQUltimoNivel] of Integer;
@@ -640,6 +693,12 @@ begin
     and (DispATRBB >= 0) and (CorpoMinBB >= 0) and (CorpoMinBB <= 1)
     and (MaxCandlesDispBB >= 1) and (MaxCandlesDispBB <= 3) and (MaxIdadeOBBB >= 0);
   bbUsaLux := bbCalcula and (FonteOBBB = 1);
+  bbRevCalcula := bbCalcula and (TipoQuebraBB >= 0) and (TipoQuebraBB <= 1)
+    and (MinReacaoBBATR >= 0) and (BufferFalhaOBTicks >= 0) and (BufferEstruturaBBTicks >= 0)
+    and (MaxBarrasOBParaCaptura >= 0) and (MaxBarrasCapturaQuebra >= 0) and (MaxBarrasEntreQuebras >= 0)
+    and (FiltroCapturaFlexBB >= 0) and (FiltroCapturaFlexBB <= 2)
+    and (FiltroDispReversaoFlexBB >= 0) and (FiltroDispReversaoFlexBB <= 2);
+  bbPrecisaLQ := bbRevCalcula and ((ModoBB <> 2) or (FiltroCapturaFlexBB > 0));
   calculaPD := ((ModoFaixaOB = 0) and MostrarZonasPD) or DebugSMC;
   calculaOBInterno := calculaBlocosInternos or DebugSMC or (bbUsaLux and (EscalaBB <> 1));
   calculaOBSwing := calculaBlocosSwing or DebugSMC or (bbUsaLux and (EscalaBB <> 0));
@@ -692,13 +751,19 @@ begin
     and ((ModoFalhaFlip = 2) or (FiltroIDMFlip = 2) or (FiltroSweepFlip = 2));
   lqObservaIDMLocal := flipCalcula and flipAvancadoValido and (ModoCapturaFlip = 0) and (SweepIDMTicks >= 1)
     and ((FiltroIDMFlip > 0) or (FiltroSweepFlip > 0));
-  lqCalcula := (HabilitarCapturasLiquidez or lqInternoNecessario) and (MinCapturaTicks >= 1) and (BufferRecuperacaoTicks >= 0)
+  lqConfigValida := (MinCapturaTicks >= 1) and (BufferRecuperacaoTicks >= 0)
     and (MinPavioGrab >= 0) and (MinPavioGrab <= 1) and (MaxBarrasStopHunt >= 2)
     and (ModoConfirmacaoLQ >= 0) and (ModoConfirmacaoLQ <= 2) and (ReacaoPosCapturaATR >= 0)
     and (MaxBarrasConfirmacaoLQ >= 1);
+  lqPublico := lqConfigValida and (HabilitarCapturasLiquidez or lqInternoNecessario);
+  lqPrivadoBB := lqConfigValida and bbPrecisaLQ and ((not lqPublico) or (not FonteSwingInterno) or (not FonteSwingExterno));
+  lqCalcula := lqPublico or lqPrivadoBB;
+  lqUltimoLado := 2;
+  if lqPrivadoBB then
+    lqUltimoLado := 4;
   lqCalculoOculto := lqCalcula and not HabilitarCapturasLiquidez;
-  observaEQ := calculaEQ or DebugSMC or (lqCalcula and FonteEQH_EQL);
-  lqSessaoValida := lqCalcula and FonteSessaoAnterior and (IntervaloSessaoLQ > 0)
+  observaEQ := calculaEQ or DebugSMC or (lqPublico and FonteEQH_EQL);
+  lqSessaoValida := lqPublico and FonteSessaoAnterior and (IntervaloSessaoLQ > 0)
     and (InicioSessaoLQ >= 0) and (InicioSessaoLQ <= 2359) and (Mod(InicioSessaoLQ, 100) < 60)
     and (FimSessaoLQ >= 0) and (FimSessaoLQ <= 2359) and (Mod(FimSessaoLQ, 100) < 60)
     and (InicioSessaoLQ <> FimSessaoLQ);
@@ -727,6 +792,8 @@ begin
         begin
           bbUsados[bbLado] := 0;
           bbMeioRef[bbLado] := -1;
+          bbZonaUsados[bbLado] := 0;
+          bbZonaProximo[bbLado] := 0;
         end;
       end;
       smcOrigemPublicada := -1;
@@ -746,8 +813,9 @@ begin
       if lqCalcula then
       begin
         lqIDTotal := 0;
+        lqIDLadoBB := 0;
         lqSessaoEmCurso := False;
-        for lqLado := 1 to 2 do
+        for lqLado := 1 to lqUltimoLado do
         begin
           lqTotalNiveis[lqLado] := 0;
           lqTotalFontes[lqLado] := 0;
@@ -2323,11 +2391,11 @@ begin
           lqLowTicks := Round(Low[1] / smcTick);
           lqRange := High[1] - Low[1];
         end;
-        for lqLado := 1 to 2 do
+        for lqLado := 1 to lqUltimoLado do
         begin
           lqDirecao := 1;
           lqExtremo := lqHighTicks;
-          if lqLado = 2 then
+          if Mod(lqLado, 2) = 0 then
           begin
             lqDirecao := -1;
             lqExtremo := lqLowTicks;
@@ -2407,11 +2475,11 @@ begin
                   begin
                     lqGap := False;
                     if smcTemAnterior then
-                      lqGap := ((lqLado = 1) and (lqLowTicks > lqPrecoTicks) and (smcAnteriorTicks <= lqPrecoTicks))
-                        or ((lqLado = 2) and (lqHighTicks < lqPrecoTicks) and (smcAnteriorTicks >= lqPrecoTicks));
+                      lqGap := ((lqDirecao = 1) and (lqLowTicks > lqPrecoTicks) and (smcAnteriorTicks <= lqPrecoTicks))
+                        or ((lqDirecao = -1) and (lqHighTicks < lqPrecoTicks) and (smcAnteriorTicks >= lqPrecoTicks));
                     lqRecuperacao := (lqPrecoTicks - smcFechamentoTicks) * lqDirecao;
                     lqPavio := High[1] - Max(Open[1], Close[1]);
-                    if lqLado = 2 then
+                    if lqDirecao = -1 then
                       lqPavio := Min(Open[1], Close[1]) - Low[1];
                     if lqGap then
                       lqResultado := LQGapTaken
@@ -2438,7 +2506,7 @@ begin
                 begin
                   lqExtremoTomada[lqNivel] := lqExtremo;
                   lqExtremoCaptura[lqNivel] := lqExtremo;
-                  if ModoConfirmacaoLQ > 0 then
+                  if (lqLado <= 2) and (ModoConfirmacaoLQ > 0) then
                   begin
                     lqATRTomada[lqNivel] := idmATRAnterior;
                     lqATRValidoTomada[lqNivel] := idmATRAnteriorValido;
@@ -2464,7 +2532,7 @@ begin
               end;
             end;
 
-            if ModoConfirmacaoLQ > 0 then
+            if (lqLado <= 2) and (ModoConfirmacaoLQ > 0) then
             begin
               lqRecEm := -1;
               if lqEstado[lqNivel] = LQGrab then
@@ -2690,6 +2758,11 @@ begin
       for smcEscala := 0 to 1 do
       begin
         smcAntigoFluxo := smcFluxo[smcEscala];
+        if bbRevCalcula then
+        begin
+          bbFluxoAnterior[smcEscala] := smcAntigoFluxo;
+          bbProtecaoAnterior[smcEscala] := smcProtecaoConfirmacao[smcEscala];
+        end;
         smcMotivoFluxo := 0;
         smcHistBase := smcEscala * SMCHistPivos;
         smcHistQtd := smcHistTotal[smcEscala];
@@ -2805,7 +2878,11 @@ begin
           if smcResultado = SMCQualificado then
           begin
             if bbCalcula then
+            begin
               bbFatoRuptura[smcLado] := smcEventoNascimento[smcQuebra] + 1;
+              if bbRevCalcula then
+                bbFatoRupturaRef[smcLado] := smcEventoRef[smcQuebra];
+            end;
             if idmPosBOS and (smcEscala = 1) then
               idmQuebraSwing := True;
             smcQuebraOrigem := smcEventoOrigem[smcQuebra];
@@ -2891,6 +2968,13 @@ begin
           flipPivoAmbiguo[smcEscala] := False;
           if smcMotivoFluxo = SMCPerdaProtecao then
             flipPerdaProtecao[smcEscala] := -smcAntigoFluxo;
+        end;
+        if bbRevCalcula then
+        begin
+          bbFluxoMotivo[smcEscala] := smcMotivoFluxo;
+          bbPerdaProtecao[smcEscala] := -1;
+          if smcMotivoFluxo = SMCPerdaProtecao then
+            bbPerdaProtecao[smcEscala] := bbProtecaoAnterior[smcEscala];
         end;
         // O snapshot sempre pertence ao fechamento, inclusive se continuar neutro.
         smcUltimo := smcUltimo + 1;
@@ -4933,309 +5017,6 @@ begin
           end;
         end;
       end;
-      if lqCalcula and smcBarraValida then
-      begin
-        if idmCalcula then
-          for idmParticao := 1 to IDMParticoes do
-          begin
-            lqLado := 2 - Mod(idmParticao - 1, 2);
-            lqBase := (lqLado - 1) * LQCapacidadeNiveis;
-            idmBase := (idmParticao - 1) * IDMCapacidade;
-            for idmSlot := idmBase to idmBase + idmUsados[idmParticao] - 1 do
-              if (idmPenetracaoTicks[idmSlot] > 0)
-                and ((idmFim[idmSlot] = smcBarra) or (idmAtivacao[idmSlot] = smcBarra)) then
-                for lqNivel := lqBase to lqBase + lqTotalNiveis[lqLado] - 1 do
-                  if (lqEstado[lqNivel] <> LQLivre) and (lqPenetracaoTicks[lqNivel] > 0)
-                    and (lqFim[lqNivel] = idmFim[idmSlot]) and (lqTicks[lqNivel] = idmNivelTicks[idmSlot]) then
-                    idmCapturaLQ[idmSlot] := lqID[lqNivel];
-          end;
-        // A remoção por contexto é posterior à tomada física do mesmo candle.
-        for lqLado := 1 to 2 do
-        begin
-          lqBase := (lqLado - 1) * LQCapacidadeNiveis;
-          for lqNivel := lqBase to lqBase + lqTotalNiveis[lqLado] - 1 do
-            if lqEstado[lqNivel] = LQAtivo then
-            begin
-              lqFontesValidas := 0;
-              lqFonte := lqPrimeiraFonte[lqNivel];
-              while lqFonte >= 0 do
-              begin
-                if lqFonteFim[lqFonte] < 0 then
-                begin
-                  if lqFonteTipo[lqFonte] = LQInducement then
-                  begin
-                    lqIDMSlot := lqFonteIDMSlot[lqFonte];
-                    if (idmEstado[lqIDMSlot] <> IDMAtivo) or (idmID[lqIDMSlot] <> lqFonteRef[lqFonte]) then
-                      lqFonteFim[lqFonte] := smcBarra;
-                  end;
-                  if lqSessaoTroca and (lqFonteTipo[lqFonte] = LQSessaoAnterior) then
-                    lqFonteFim[lqFonte] := smcBarra;
-                  if lqFonteFim[lqFonte] < 0 then
-                    lqFontesValidas := lqFontesValidas + 1;
-                end;
-                lqFonte := lqFonteProxima[lqFonte];
-              end;
-              if lqFontesValidas = 0 then
-              begin
-                lqEstado[lqNivel] := LQSemFonte;
-                lqFim[lqNivel] := smcBarra;
-                lqDiaFim[lqNivel] := smcDataConfirmada;
-                lqHoraFim[lqNivel] := smcHoraConfirmada;
-              end;
-            end;
-        end;
-
-        // Fontes entram pelo mesmo registro, após o monitoramento dos níveis anteriores.
-        for lqGrupoFonte := -2 to IDMParticoes do
-        begin
-          lqQtdEntradas := 0;
-          if lqGrupoFonte = -2 then
-          begin
-            if FonteEQH_EQL then
-              lqQtdEntradas := smcLotes[smcQuadro];
-          end
-          else if lqGrupoFonte = -1 then
-          begin
-            if lqSessaoNova then
-              lqQtdEntradas := 2;
-          end
-          else if lqGrupoFonte = 0 then
-            lqQtdEntradas := 4
-          else if FonteIDM and idmCalcula and ((lqGrupoFonte < 3) or (lqGrupoFonte > 4)) then
-            lqQtdEntradas := idmUsados[lqGrupoFonte];
-          for lqEntrada := 1 to lqQtdEntradas do
-          begin
-            lqElegivel := False;
-            lqIDMSlot := -1;
-            if lqGrupoFonte = -2 then
-            begin
-              lqCandleEQ := smcPrimeiro + lqEntrada - 1;
-              if (smcEventoFaixa[lqCandleEQ] = 15) or (smcEventoFaixa[lqCandleEQ] = 16) then
-              begin
-                lqLado := smcEventoFaixa[lqCandleEQ] - 14;
-                lqOrigem := smcEventoRef[lqCandleEQ];
-                lqOrigemPar := smcEventoOrigem[lqCandleEQ];
-                lqPrecoTicks := Round(smcEventoLo[lqCandleEQ] / smcTick);
-                lqPrecoPar := Round(smcEventoHi[lqCandleEQ] / smcTick);
-                if ((lqLado = 1) and (lqPrecoPar > lqPrecoTicks))
-                  or ((lqLado = 2) and (lqPrecoPar < lqPrecoTicks)) then
-                begin
-                  lqOrigem := lqOrigemPar;
-                  lqPrecoTicks := lqPrecoPar;
-                end;
-                lqRef := smcBarra;
-                lqTipo := LQPoolEQ;
-                lqElegivel := True;
-              end;
-            end
-            else if lqGrupoFonte = -1 then
-            begin
-              lqLado := lqEntrada;
-              lqOrigem := lqSessaoOrigem[lqLado];
-              lqRef := lqSessaoChave;
-              lqPrecoTicks := lqSessaoTicks[lqLado];
-              lqTipo := LQSessaoAnterior;
-              lqElegivel := True;
-            end
-            else if lqGrupoFonte = 0 then
-            begin
-              lqPivoSlot := smcPivoNaBarra[lqEntrada];
-              lqPivoHabilitado := ((lqEntrada <= 2) and FonteSwingInterno) or ((lqEntrada > 2) and FonteSwingExterno);
-              if lqPivoHabilitado and (lqPivoSlot >= 0) then
-              begin
-                lqLado := Mod(lqEntrada - 1, 2) + 1;
-                lqOrigem := smcEventoOrigem[lqPivoSlot];
-                lqRef := smcBarra;
-                lqPrecoTicks := Round(smcEventoLo[lqPivoSlot] / smcTick);
-                lqTipo := LQPivoInterno;
-                if lqEntrada > 2 then
-                  lqTipo := LQPivoSwing;
-                lqElegivel := smcPivoValido[lqEntrada];
-                if not lqElegivel then
-                begin
-                  lqDiagnostico[lqLado] := LQDadosInvalidos;
-                  lqBarraDiagnostico[lqLado] := smcBarra;
-                end;
-              end;
-            end
-            else
-            begin
-              lqIDMSlot := (lqGrupoFonte - 1) * IDMCapacidade + lqEntrada - 1;
-              if (idmEstado[lqIDMSlot] = IDMAtivo) and (idmAtivacao[lqIDMSlot] = smcBarra) then
-              begin
-                lqLado := 2 - Mod(lqGrupoFonte - 1, 2);
-                lqOrigem := idmOrigem[lqIDMSlot];
-                lqRef := idmID[lqIDMSlot];
-                lqPrecoTicks := idmNivelTicks[lqIDMSlot];
-                lqTipo := LQInducement;
-                lqElegivel := True;
-              end;
-            end;
-
-            if lqElegivel then
-            begin
-              lqDirecao := 1;
-              if lqLado = 2 then
-                lqDirecao := -1;
-              lqJanela := smcBarra - lqOrigem;
-              lqElegivel := (lqOrigem >= 0) and (lqJanela >= 0) and (smcBarrasValidas > lqJanela);
-              lqResultado := LQDadosInvalidos;
-              if lqElegivel then
-              begin
-                lqResultado := LQFonteConsumida;
-                lqInc := 1;
-                while lqElegivel and (lqTipo <> LQSessaoAnterior) and (lqInc <= lqJanela) do
-                begin
-                  lqExtremo := Round(High[lqInc] / smcTick);
-                  if lqLado = 2 then
-                    lqExtremo := Round(Low[lqInc] / smcTick);
-                  lqElegivel := (lqExtremo - lqPrecoTicks) * lqDirecao <= 0;
-                  lqInc := lqInc + 1;
-                end;
-              end;
-              if not lqElegivel then
-              begin
-                lqDiagnostico[lqLado] := lqResultado;
-                lqBarraDiagnostico[lqLado] := smcBarra;
-              end;
-            end;
-
-            if lqElegivel then
-            begin
-              lqBase := (lqLado - 1) * LQCapacidadeNiveis;
-              lqSlot := -1;
-              lqVaga := -1;
-              lqTerminal := -1;
-              for lqNivel := lqBase to lqBase + lqTotalNiveis[lqLado] - 1 do
-                if lqEstado[lqNivel] = LQAtivo then
-                begin
-                  if lqTicks[lqNivel] = lqPrecoTicks then
-                    lqSlot := lqNivel;
-                end
-                else if lqEstado[lqNivel] = LQLivre then
-                  lqVaga := lqNivel
-                else if (lqDesfecho[lqNivel] <> LQAguardaRecuperacao)
-                  and (lqConfirmacao[lqNivel] <> LQConfirmacaoPendente) then
-                begin
-                  lqMomentoTerminal := lqFim[lqNivel];
-                  if lqBarraDesfecho[lqNivel] >= 0 then
-                    lqMomentoTerminal := lqBarraDesfecho[lqNivel];
-                  if lqConfirmacaoEm[lqNivel] >= 0 then
-                    lqMomentoTerminal := lqConfirmacaoEm[lqNivel];
-                  if lqTerminal < 0 then
-                    lqTerminal := lqNivel
-                  else
-                  begin
-                    lqMomentoOutro := lqFim[lqTerminal];
-                    if lqBarraDesfecho[lqTerminal] >= 0 then
-                      lqMomentoOutro := lqBarraDesfecho[lqTerminal];
-                    if lqConfirmacaoEm[lqTerminal] >= 0 then
-                      lqMomentoOutro := lqConfirmacaoEm[lqTerminal];
-                    if (lqMomentoTerminal < lqMomentoOutro)
-                      or ((lqMomentoTerminal = lqMomentoOutro) and (lqID[lqNivel] < lqID[lqTerminal])) then
-                      lqTerminal := lqNivel;
-                  end;
-                end;
-
-              lqDuplicado := False;
-              if lqSlot >= 0 then
-              begin
-                lqFonte := lqPrimeiraFonte[lqSlot];
-                while (lqFonte >= 0) and not lqDuplicado do
-                begin
-                  lqDuplicado := (lqFonteTipo[lqFonte] = lqTipo) and (lqFonteOrigem[lqFonte] = lqOrigem)
-                    and (lqFonteRef[lqFonte] = lqRef);
-                  lqFonte := lqFonteProxima[lqFonte];
-                end;
-              end;
-              if not lqDuplicado then
-              begin
-                if (lqTerminal >= 0) and (((lqSlot < 0) and (lqVaga < 0) and (lqTotalNiveis[lqLado] = LQCapacidadeNiveis))
-                  or ((lqFontesLivres[lqLado] < 0) and (lqTotalFontes[lqLado] = LQCapacidadeFontes))) then
-                begin
-                  lqFonte := lqPrimeiraFonte[lqTerminal];
-                  while lqFonte >= 0 do
-                  begin
-                    lqProximaFonte := lqFonteProxima[lqFonte];
-                    lqFonteProxima[lqFonte] := lqFontesLivres[lqLado];
-                    lqFontesLivres[lqLado] := lqFonte;
-                    lqFonte := lqProximaFonte;
-                  end;
-                  lqEstado[lqTerminal] := LQLivre;
-                  lqVaga := lqTerminal;
-                end;
-
-                if ((lqSlot >= 0) or (lqVaga >= 0) or (lqTotalNiveis[lqLado] < LQCapacidadeNiveis))
-                  and ((lqFontesLivres[lqLado] >= 0) or (lqTotalFontes[lqLado] < LQCapacidadeFontes)) then
-                begin
-                  if lqSlot < 0 then
-                  begin
-                    lqSlot := lqVaga;
-                    if lqSlot < 0 then
-                    begin
-                      lqSlot := lqBase + lqTotalNiveis[lqLado];
-                      lqTotalNiveis[lqLado] := lqTotalNiveis[lqLado] + 1;
-                    end;
-                    lqIDTotal := lqIDTotal + 1;
-                    lqID[lqSlot] := lqIDTotal;
-                    lqEstado[lqSlot] := LQAtivo;
-                    lqOrigemNivel[lqSlot] := lqOrigem;
-                    lqTicks[lqSlot] := lqPrecoTicks;
-                    lqPrimeiraFonte[lqSlot] := -1;
-                    lqAtivacao[lqSlot] := smcBarra;
-                    lqDia[lqSlot] := smcDataConfirmada;
-                    lqHora[lqSlot] := smcHoraConfirmada;
-                    lqFim[lqSlot] := -1;
-                    lqDiaFim[lqSlot] := 0;
-                    lqHoraFim[lqSlot] := 0;
-                    lqExtremoTomada[lqSlot] := 0;
-                    lqPenetracaoTicks[lqSlot] := 0;
-                    lqPublicacao[lqSlot] := -1;
-                    lqDiaPublicacao[lqSlot] := 0;
-                    lqHoraPublicacao[lqSlot] := 0;
-                    lqDesfecho[lqSlot] := 0;
-                    lqBarraDesfecho[lqSlot] := -1;
-                    lqDiaDesfecho[lqSlot] := 0;
-                    lqHoraDesfecho[lqSlot] := 0;
-                    lqPublicacaoDesfecho[lqSlot] := -1;
-                    lqDiaPublicacaoDesfecho[lqSlot] := 0;
-                    lqHoraPublicacaoDesfecho[lqSlot] := 0;
-                    lqExtremoCaptura[lqSlot] := 0;
-                    lqConfirmacao[lqSlot] := 0;
-                    lqConfirmacaoEm[lqSlot] := -1;
-                    lqConfirmacaoPublicacao[lqSlot] := -1;
-                    lqConfirmacaoReagiu[lqSlot] := False;
-                    lqConfirmacaoCruzou[lqSlot] := False;
-                    lqConfirmacaoRompeu[lqSlot] := False;
-                  end;
-                  lqFonte := lqFontesLivres[lqLado];
-                  if lqFonte >= 0 then
-                    lqFontesLivres[lqLado] := lqFonteProxima[lqFonte]
-                  else
-                  begin
-                    lqFonte := (lqLado - 1) * LQCapacidadeFontes + lqTotalFontes[lqLado];
-                    lqTotalFontes[lqLado] := lqTotalFontes[lqLado] + 1;
-                  end;
-                  lqFonteTipo[lqFonte] := lqTipo;
-                  lqFonteOrigem[lqFonte] := lqOrigem;
-                  lqFonteRef[lqFonte] := lqRef;
-                  lqFonteIDMSlot[lqFonte] := lqIDMSlot;
-                  lqFonteAtivacao[lqFonte] := smcBarra;
-                  lqFonteFim[lqFonte] := -1;
-                  lqFonteTomada[lqFonte] := False;
-                  lqFonteProxima[lqFonte] := lqPrimeiraFonte[lqSlot];
-                  lqPrimeiraFonte[lqSlot] := lqFonte;
-                end
-                else
-                begin
-                  lqDiagnostico[lqLado] := SMCCapacityFull;
-                  lqBarraDiagnostico[lqLado] := smcBarra;
-                end;
-              end;
-            end;
-          end;
-        end;
-      end;
       // 12A: guardar fatos causais da barra fechada antes de associar o OB.
       if bbCalcula then
       begin
@@ -5309,6 +5090,23 @@ begin
                 bbMeioOrigem[bbLado] := smcHistOrigem[bbPivo];
                 bbMeioRef[bbLado] := smcBarra;
                 bbMeioPreco[bbLado] := smcHistPreco[bbPivo];
+                if bbRevCalcula then
+                begin
+                  bbMeioExtremoRef[bbLado] := -1;
+                  if (bbPos > 0) and ((MinReacaoBBATR = 0) or smcATRDisponivel) then
+                  begin
+                    bbHist := bbEscala * SMCHistPivos + Mod(smcHistInicio[bbEscala] + bbPos - 1, SMCHistPivos);
+                    if (smcHistLado[bbHist] = bbDirecao) and (smcHistOrigem[bbHist] < smcHistOrigem[bbPivo])
+                      and (smcHistConfirmacao[bbHist] < smcBarra)
+                      and ((Round(smcHistPreco[bbHist] / smcTick) - Round(smcHistPreco[bbPivo] / smcTick))
+                        * bbDirecao * smcTick >= Max(smcTick, MinReacaoBBATR * smcATR)) then
+                    begin
+                      bbMeioExtremoRef[bbLado] := smcHistConfirmacao[bbHist];
+                      bbMeioExtremoOrigem[bbLado] := smcHistOrigem[bbHist];
+                      bbMeioExtremoTicks[bbLado] := Round(smcHistPreco[bbHist] / smcTick);
+                    end;
+                  end;
+                end;
                 bbMeioPiso[bbLado] := -1;
                 bbHist := 0;
                 if bbUsaLux then
@@ -5480,6 +5278,12 @@ begin
                     bbRemocao[bbDestino] := -1;
                     bbMotivoRemocao[bbDestino] := 0;
                     bbFimRegistro[bbDestino] := -1;
+                    if bbRevCalcula then
+                    begin
+                      bbZonaVinculo[bbDestino] := -1;
+                      bbRevEstado[bbDestino] := 0;
+                      bbRevEstado[bbDestino + BBTotal] := 0;
+                    end;
                   end
                   else
                     bbSemVaga := bbSemVaga + 1;
@@ -5503,6 +5307,12 @@ begin
                     bbIntermediario[bbSlot] := bbMeioOrigem[bbLado];
                     bbIntermediarioRef[bbSlot] := bbMeioRef[bbLado];
                     bbIntermediarioPreco[bbSlot] := bbMeioPreco[bbLado];
+                    if bbRevCalcula then
+                    begin
+                      bbExtremoRef[bbSlot] := bbMeioExtremoRef[bbLado];
+                      bbExtremoOrigem[bbSlot] := bbMeioExtremoOrigem[bbLado];
+                      bbExtremoTicks[bbSlot] := bbMeioExtremoTicks[bbLado];
+                    end;
                     bbInicio := bbOrigem[bbSlot] + 1;
                   end;
                 end;
@@ -5592,6 +5402,656 @@ begin
           end;
         end;
       end;
+      // 12B: a reversao consome os fatos fechados antes de o LQ admitir novas fontes.
+      if bbRevCalcula then
+        for bbRevLado := 1 to 4 do
+        begin
+          bbEscala := 0;
+          bbTipoFonteLQ := LQPivoInterno;
+          if bbRevLado > 2 then
+          begin
+            bbEscala := 1;
+            bbTipoFonteLQ := LQPivoSwing;
+          end;
+          bbRevLadoLQ := Mod(bbRevLado - 1, 2) + 1;
+          bbRevDir := 2 * bbRevLadoLQ - 3;
+          bbBase := (bbRevLado - 1) * BBCapacidade;
+          bbRevFim := bbBase + bbUsados[bbRevLado] - 1;
+          for bbSlot := bbBase to bbRevFim do
+            if (bbConfirmacao[bbSlot] = smcBarra) or (bbRevEstado[bbSlot] = BBRevEspera)
+              or (bbRevEstado[bbSlot + BBTotal] = BBRevEspera) then
+            begin
+              if bbConfirmacao[bbSlot] = smcBarra then
+              begin
+                bbSemConsumo := smcBarraValida and (bbExtremoRef[bbSlot] >= 0)
+                  and (bbFluxoAnterior[bbEscala] = -bbRevDir);
+                bbMeioTicks := Round(bbIntermediarioPreco[bbSlot] / smcTick);
+                if bbSemConsumo then
+                begin
+                  bbBarra := bbExtremoOrigem[bbSlot] + 1;
+                  bbSemConsumo := smcBarrasValidas >= CurrentBar - bbBarra;
+                  while bbSemConsumo and (bbBarra < smcBarra) do
+                  begin
+                    bbLag := CurrentBar - bbBarra;
+                    bbPenetrou := Round(High[bbLag] / smcTick);
+                    if bbRevDir = 1 then
+                      bbPenetrou := Round(Low[bbLag] / smcTick);
+                    bbSemConsumo := (bbPenetrou - bbExtremoTicks[bbSlot]) * bbRevDir >= 0;
+                    if bbBarra > bbIntermediario[bbSlot] then
+                      bbSemConsumo := bbSemConsumo and ((Round(Close[bbLag] / smcTick) - bbMeioTicks) * bbRevDir <= 0);
+                    bbBarra := bbBarra + 1;
+                  end;
+                end;
+                bbConhecidoAntes[bbSlot] := (bbOrigem[bbSlot] < smcBarra) and (bbCruzamento[bbSlot] >= 0)
+                  and (bbQuebra[bbSlot] <= smcBarra);
+
+                bbFreshAntes := True;
+                if bbSemConsumo and ExigirOBFresh then
+                begin
+                  bbBarra := bbSaida[bbSlot] + 1;
+                  while bbFreshAntes and (bbBarra < smcBarra) do
+                  begin
+                    bbLag := CurrentBar - bbBarra;
+                    bbFreshAntes := (Round(Low[bbLag] / smcTick) > Round(bbHi[bbSlot] / smcTick))
+                      or (Round(High[bbLag] / smcTick) < Round(bbLo[bbSlot] / smcTick));
+                    bbBarra := bbBarra + 1;
+                  end;
+                end;
+                bbFresh[bbSlot] := bbFreshAntes;
+                for bbModelo := 0 to 1 do
+                  if (ModoBB = 3) or (ModoBB = bbModelo + 1) then
+                  begin
+                    bbRevSlot := bbSlot + bbModelo * BBTotal;
+                    bbRevEstado[bbRevSlot] := BBRevContexto;
+                    if bbSemConsumo then
+                      bbRevEstado[bbRevSlot] := BBRevEspera;
+                    bbRevTomada[bbRevSlot] := -1;
+                    bbRevRecuperacao[bbRevSlot] := -1;
+                    bbRevCaptura[bbRevSlot] := 0;
+                    bbRevTipoCaptura[bbRevSlot] := 0;
+                    bbRevNivelLQ[bbRevSlot] := -1;
+                    bbRevFalha[bbRevSlot] := -1;
+                    bbRevQuebra[bbRevSlot] := -1;
+                    bbRevDispInicio[bbRevSlot] := -1;
+                    bbRevDispFim[bbRevSlot] := -1;
+                    bbRevCruzouMeio[bbRevSlot] := False;
+                  end;
+              end;
+
+              bbLimiteFalha := Max(1, BufferFalhaOBTicks);
+              bbLimiteEstrutura := Max(1, BufferEstruturaBBTicks);
+              if smcBarraValida then
+              begin
+                bbMeioTicks := Round(bbIntermediarioPreco[bbSlot] / smcTick);
+                bbRefTicks := bbExtremoTicks[bbSlot];
+                bbFalhaTicks := Round(bbLo[bbSlot] / smcTick);
+                bbDistalTicks := Round(bbHi[bbSlot] / smcTick);
+                bbPenetrou := Round(High[1] / smcTick);
+                bbMarco := Round(Low[1] / smcTick);
+                bbPulso := bbDispBaixa;
+                if bbRevDir = 1 then
+                begin
+                  bbFalhaTicks := Round(bbHi[bbSlot] / smcTick);
+                  bbDistalTicks := Round(bbLo[bbSlot] / smcTick);
+                  bbPenetrou := Round(Low[1] / smcTick);
+                  bbMarco := Round(High[1] / smcTick);
+                  bbPulso := bbDispAlta;
+                end;
+                bbTomou := (bbPenetrou - bbRefTicks) * bbRevDir < 0;
+                bbAmbiguo := (bbMarco - bbMeioTicks) * bbRevDir > 0;
+                bbGapFalha := smcTemAnterior and ((smcAnteriorTicks - bbFalhaTicks) * bbRevDir <= 0)
+                  and ((bbPenetrou - bbFalhaTicks) * bbRevDir > 0);
+                bbDistFalha := (smcFechamentoTicks - bbFalhaTicks) * bbRevDir;
+                bbDistMeio := (smcFechamentoTicks - bbMeioTicks) * bbRevDir;
+                bbDistExtremo := (smcFechamentoTicks - bbRefTicks) * bbRevDir;
+              end;
+
+              for bbModelo := 0 to 1 do
+              begin
+                bbRevSlot := bbSlot + bbModelo * BBTotal;
+                if bbRevEstado[bbRevSlot] = BBRevEspera then
+                begin
+                  bbRequerCaptura := (bbModelo = 0) or (FiltroCapturaFlexBB = 2);
+                  bbRequerDisp := (bbModelo = 0) or (FiltroDispReversaoFlexBB = 2);
+                  bbBuscaCaptura := bbRequerCaptura or (FiltroCapturaFlexBB = 1);
+                  bbBuscaDisp := bbRequerDisp or (FiltroDispReversaoFlexBB = 1);
+                  bbNovoEstado := BBRevEspera;
+                  if not smcBarraValida then
+                    bbNovoEstado := BBRevDadosInvalidos
+                  else if (bbEstado[bbSlot] <> BBQualificado) then
+                    bbNovoEstado := BBRevPrazo
+                  else if bbFluxoMotivo[bbEscala] = SMCRetornoExtremo then
+                    bbNovoEstado := BBRevContexto
+                  else if (smcBarra = bbConfirmacao[bbSlot]) and ((bbDistMeio > 0)
+                    or (ExigirOBFresh and (not bbRequerCaptura) and (not bbFresh[bbSlot]))) then
+                    bbNovoEstado := BBRevContexto;
+
+                  if bbNovoEstado = BBRevEspera then
+                  begin
+                    if bbBuscaCaptura and bbTomou and (bbRevTomada[bbRevSlot] < 0) then
+                    begin
+                      bbPodeTomar := (smcBarra > bbIntermediario[bbSlot]) and (not bbAmbiguo)
+                        and ((not ExigirOBFresh) or bbFresh[bbSlot])
+                        and ((bbRemocao[bbSlot] < 0) or (bbRemocao[bbSlot] >= smcBarra))
+                        and (bbFluxoAnterior[bbEscala] = -bbRevDir)
+                        and ((MaxBarrasOBParaCaptura = 0) or (smcBarra - bbConfirmacao[bbSlot] <= MaxBarrasOBParaCaptura))
+                        and (bbRevFalha[bbRevSlot] < 0) and (bbRevQuebra[bbRevSlot] < 0)
+                        and ((smcBarra > bbConfirmacao[bbSlot]) or (bbConhecidoAntes[bbSlot]
+                          and (bbFatoRuptura[3 - bbRevLadoLQ] = 0) and (bbFatoRuptura[5 - bbRevLadoLQ] = 0)));
+                      bbDispoLQ := -1;
+                      if bbPodeTomar and lqCalcula then
+                      begin
+                        for bbLado := bbRevLadoLQ to lqUltimoLado do
+                          if (Mod(bbLado, 2) = Mod(bbRevLadoLQ, 2)) and (bbRevNivelLQ[bbRevSlot] < 0) then
+                          begin
+                            bbRevNivel := (bbLado - 1) * LQCapacidadeNiveis;
+                            bbRevNivelFim := bbRevNivel + lqTotalNiveis[bbLado] - 1;
+                            while (bbRevNivel <= bbRevNivelFim) and (bbRevNivelLQ[bbRevSlot] < 0) do
+                            begin
+                              if (lqFim[bbRevNivel] = smcBarra) and (lqTicks[bbRevNivel] = bbRefTicks)
+                                and (lqPenetracaoTicks[bbRevNivel] > 0) and ((lqEstado[bbRevNivel] = LQGrab)
+                                  or (lqDesfecho[bbRevNivel] = LQAguardaRecuperacao)) then
+                              begin
+                                if bbLado <= 2 then
+                                  bbDispoLQ := bbRevNivel;
+                                bbRevFonte := lqPrimeiraFonte[bbRevNivel];
+                                while (bbRevFonte >= 0) and (bbRevNivelLQ[bbRevSlot] < 0) do
+                                begin
+                                  if lqFonteTomada[bbRevFonte] and (lqFonteTipo[bbRevFonte] = bbTipoFonteLQ)
+                                    and (lqFonteRef[bbRevFonte] = bbExtremoRef[bbSlot])
+                                    and (lqFonteOrigem[bbRevFonte] = bbExtremoOrigem[bbSlot]) then
+                                    bbRevNivelLQ[bbRevSlot] := bbRevNivel;
+                                  bbRevFonte := lqFonteProxima[bbRevFonte];
+                                end;
+                              end;
+                              bbRevNivel := bbRevNivel + 1;
+                            end;
+                          end;
+                      end;
+                      if bbRevNivelLQ[bbRevSlot] >= 0 then
+                      begin
+                        bbRevNivel := bbRevNivelLQ[bbRevSlot];
+                        bbRevTomada[bbRevSlot] := smcBarra;
+                        bbRevCaptura[bbRevSlot] := lqID[bbRevNivel];
+                        // Aliases ocultos podem apontar para a mesma tomada publica.
+                        if bbDispoLQ >= 0 then
+                          bbRevCaptura[bbRevSlot] := lqID[bbDispoLQ];
+                      end
+                      else if bbRequerCaptura then
+                        bbNovoEstado := BBRevCapturaInvalida;
+                    end;
+
+                    if bbBuscaCaptura and (bbRevNivelLQ[bbRevSlot] >= 0)
+                      and (bbRevRecuperacao[bbRevSlot] < 0) then
+                    begin
+                      bbRevNivel := bbRevNivelLQ[bbRevSlot];
+                      bbClassificacao := lqDesfecho[bbRevNivel];
+                      if lqEstado[bbRevNivel] = LQGrab then
+                        bbClassificacao := LQGrab;
+                      if ((bbClassificacao = LQGrab) and AceitarLG) or ((bbClassificacao = LQSweep) and AceitarSW)
+                        or ((bbClassificacao = LQStopHunt) and AceitarSH) then
+                      begin
+                        bbRevTipoCaptura[bbRevSlot] := bbClassificacao;
+                        bbRevRecuperacao[bbRevSlot] := smcBarra;
+                        bbRevExtremoCaptura[bbRevSlot] := lqExtremoCaptura[bbRevNivel];
+                      end
+                      else if bbClassificacao <> LQAguardaRecuperacao then
+                      begin
+                        bbRevNivelLQ[bbRevSlot] := -1;
+                        bbRevCaptura[bbRevSlot] := 0;
+                        if bbRequerCaptura then
+                          bbNovoEstado := BBRevCapturaInvalida;
+                      end;
+                    end;
+
+                    if (smcBarra > bbConfirmacao[bbSlot]) and (bbFatoRuptura[bbRevLado] > 0)
+                      and (not (bbRequerCaptura and (bbRevTomada[bbRevSlot] >= 0)
+                        and (bbFatoRupturaRef[bbRevLado] = bbExtremoRef[bbSlot])
+                        and (bbFatoRuptura[bbRevLado] > bbRevTomada[bbRevSlot])
+                        and ((bbRevRecuperacao[bbRevSlot] < 0) or (bbFatoRuptura[bbRevLado] <= bbRevRecuperacao[bbRevSlot] + 1)))) then
+                      bbNovoEstado := BBRevContexto;
+
+                    if (bbDistExtremo < 0) and ((not bbRequerCaptura) or (bbRevTomada[bbRevSlot] < 0)) then
+                      bbNovoEstado := BBRevContexto;
+                    if bbRequerCaptura and (bbRevRecuperacao[bbRevSlot] >= 0)
+                      and ((smcFechamentoTicks - bbRevExtremoCaptura[bbRevSlot]) * bbRevDir < 0) then
+                      bbNovoEstado := BBRevContexto;
+                    if bbRequerCaptura and (bbRevTomada[bbRevSlot] < 0) and (bbDistMeio > 0) then
+                      bbNovoEstado := BBRevContexto;
+                    if (bbRevFalha[bbRevSlot] >= 0) and ((smcFechamentoTicks - bbDistalTicks) * bbRevDir < 0) then
+                      bbNovoEstado := BBRevContexto;
+
+                    bbAncora := bbConfirmacao[bbSlot];
+                    if bbRequerCaptura then
+                      bbAncora := bbRevRecuperacao[bbRevSlot];
+                    if bbRequerCaptura and (bbRevTomada[bbRevSlot] < 0) and (MaxBarrasOBParaCaptura > 0)
+                      and (smcBarra - bbConfirmacao[bbSlot] > MaxBarrasOBParaCaptura) then
+                      bbNovoEstado := BBRevPrazo;
+                    if (bbAncora >= 0) and (MaxBarrasCapturaQuebra > 0) and (smcBarra - bbAncora > MaxBarrasCapturaQuebra) then
+                      bbNovoEstado := BBRevPrazo;
+
+                    if (bbNovoEstado = BBRevEspera) and (smcBarra > bbConfirmacao[bbSlot]) then
+                    begin
+                      if (bbRevFalha[bbRevSlot] < 0) and (bbDistFalha > 0) and bbGapFalha and (not PermitirGapBB) then
+                        bbNovoEstado := BBRevGap;
+                      if (bbRevFalha[bbRevSlot] < 0) and (bbDistFalha >= bbLimiteFalha) then
+                        bbRevFalha[bbRevSlot] := smcBarra;
+
+                      if (bbRevQuebra[bbRevSlot] < 0) and (bbIntermediarioRef[bbSlot] < smcBarra) then
+                      begin
+                        if bbDistMeio <= 0 then
+                          bbRevCruzouMeio[bbRevSlot] := False
+                        else if smcTemAnterior and ((smcAnteriorTicks - bbMeioTicks) * bbRevDir <= 0) then
+                          bbRevCruzouMeio[bbRevSlot] := (TipoQuebraBB = 0)
+                            or (bbPerdaProtecao[bbEscala] = bbIntermediarioRef[bbSlot]);
+                        if bbRevCruzouMeio[bbRevSlot] and (bbDistMeio >= bbLimiteEstrutura) then
+                          bbRevQuebra[bbRevSlot] := smcBarra;
+                      end;
+
+                      if bbRequerCaptura and ((bbRevFalha[bbRevSlot] >= 0) or (bbRevQuebra[bbRevSlot] >= 0))
+                        and ((bbAncora < 0) or ((bbRevQuebra[bbRevSlot] >= 0)
+                          and (bbRevTomada[bbRevSlot] >= bbRevQuebra[bbRevSlot]))) then
+                        bbNovoEstado := BBRevCapturaInvalida;
+
+                      bbFimQuebras := Max(bbRevFalha[bbRevSlot], bbRevQuebra[bbRevSlot]);
+                      if bbBuscaDisp and (bbRevDispFim[bbRevSlot] < 0) and (bbAncora >= 0) and (bbPulso > 0)
+                        and ((bbRevFalha[bbRevSlot] < 0) or (bbRevQuebra[bbRevSlot] < 0) or (smcBarra = bbFimQuebras)) then
+                      begin
+                        bbInicioDisp := smcBarra - bbPulso + 1;
+                        if (bbRequerCaptura and (bbInicioDisp >= bbAncora))
+                          or ((not bbRequerCaptura) and (bbInicioDisp > bbAncora)) then
+                        begin
+                          bbRevDispInicio[bbRevSlot] := bbInicioDisp;
+                          bbRevDispFim[bbRevSlot] := smcBarra;
+                        end;
+                      end;
+
+                      if (MaxBarrasEntreQuebras > 0) and (bbFimQuebras >= 0) then
+                      begin
+                        if (bbRevFalha[bbRevSlot] < 0) or (bbRevQuebra[bbRevSlot] < 0) then
+                        begin
+                          if smcBarra - bbFimQuebras > MaxBarrasEntreQuebras then
+                            bbNovoEstado := BBRevPrazo;
+                        end
+                        else if Abs(bbRevFalha[bbRevSlot] - bbRevQuebra[bbRevSlot]) > MaxBarrasEntreQuebras then
+                          bbNovoEstado := BBRevPrazo;
+                      end;
+
+                      if (bbNovoEstado = BBRevEspera) and (bbRevFalha[bbRevSlot] >= 0) and (bbRevQuebra[bbRevSlot] >= 0) then
+                      begin
+                        if bbRequerDisp and (bbRevDispFim[bbRevSlot] < 0) then
+                          bbNovoEstado := BBRevSemDeslocamento
+                        else if (bbDistFalha >= bbLimiteFalha) and (bbDistMeio >= bbLimiteEstrutura) then
+                          bbNovoEstado := BBRevAtivo;
+                      end;
+                    end;
+                  end;
+
+                  bbRevEstado[bbRevSlot] := bbNovoEstado;
+                  if bbNovoEstado = BBRevAtivo then
+                  begin
+                    if bbZonaVinculo[bbSlot] < 0 then
+                    begin
+                      bbZona := bbBase + bbZonaProximo[bbRevLado];
+                      bbZonaProximo[bbRevLado] := Mod(bbZonaProximo[bbRevLado] + 1, BBCapacidade);
+                      bbZonaUsados[bbRevLado] := Min(bbZonaUsados[bbRevLado] + 1, BBCapacidade);
+                      bbZonaVinculo[bbSlot] := bbZona;
+                      bbZonaOB[bbZona] := bbID[bbSlot];
+                      bbZonaOrigem[bbZona] := bbOrigem[bbSlot];
+                      bbZonaLo[bbZona] := bbLo[bbSlot];
+                      bbZonaHi[bbZona] := bbHi[bbSlot];
+                      bbZonaFonte[bbZona] := bbFonte[bbSlot];
+                      bbZonaAtivacao[bbZona] := smcBarra;
+                      bbZonaPublicacao[bbZona] := CurrentBar;
+                      bbZonaData[bbZona] := smcDataConfirmada;
+                      bbZonaHora[bbZona] := smcHoraConfirmada;
+                      bbZonaModelo[bbZona] := bbModelo;
+                      bbZonaMeioRef[bbZona] := bbIntermediarioRef[bbSlot];
+                      bbZonaExtremoRef[bbZona] := bbExtremoRef[bbSlot];
+                      bbZonaConfirmou[bbZona] := -1;
+                      bbZonaConfirmou[bbZona + BBTotal] := -1;
+                    end;
+                    bbZona := bbZonaVinculo[bbSlot];
+                    if bbZonaOB[bbZona] = bbID[bbSlot] then
+                    begin
+                      bbZonaFatos := bbZona + bbModelo * BBTotal;
+                      bbZonaConfirmou[bbZonaFatos] := smcBarra;
+                      bbZonaFalha[bbZonaFatos] := bbRevFalha[bbRevSlot];
+                      bbZonaQuebra[bbZonaFatos] := bbRevQuebra[bbRevSlot];
+                      bbZonaTomada[bbZonaFatos] := bbRevTomada[bbRevSlot];
+                      bbZonaRecuperacao[bbZonaFatos] := bbRevRecuperacao[bbRevSlot];
+                      bbZonaCaptura[bbZonaFatos] := bbRevCaptura[bbRevSlot];
+                      bbZonaTipoCaptura[bbZonaFatos] := bbRevTipoCaptura[bbRevSlot];
+                      bbZonaDispInicio[bbZonaFatos] := bbRevDispInicio[bbRevSlot];
+                      bbZonaDispFim[bbZonaFatos] := bbRevDispFim[bbRevSlot];
+                    end;
+                  end;
+                end;
+              end;
+
+              if ExigirOBFresh and bbFresh[bbSlot] and smcBarraValida and (smcBarra > bbSaida[bbSlot]) then
+                if (Round(Low[1] / smcTick) <= Round(bbHi[bbSlot] / smcTick))
+                  and (Round(High[1] / smcTick) >= Round(bbLo[bbSlot] / smcTick)) then
+                  bbFresh[bbSlot] := False;
+            end;
+        end;
+
+      if lqCalcula and smcBarraValida then
+      begin
+        if idmCalcula then
+          for idmParticao := 1 to IDMParticoes do
+          begin
+            lqLado := 2 - Mod(idmParticao - 1, 2);
+            lqBase := (lqLado - 1) * LQCapacidadeNiveis;
+            idmBase := (idmParticao - 1) * IDMCapacidade;
+            for idmSlot := idmBase to idmBase + idmUsados[idmParticao] - 1 do
+              if (idmPenetracaoTicks[idmSlot] > 0)
+                and ((idmFim[idmSlot] = smcBarra) or (idmAtivacao[idmSlot] = smcBarra)) then
+                for lqNivel := lqBase to lqBase + lqTotalNiveis[lqLado] - 1 do
+                  if (lqEstado[lqNivel] <> LQLivre) and (lqPenetracaoTicks[lqNivel] > 0)
+                    and (lqFim[lqNivel] = idmFim[idmSlot]) and (lqTicks[lqNivel] = idmNivelTicks[idmSlot]) then
+                    idmCapturaLQ[idmSlot] := lqID[lqNivel];
+          end;
+        // A remoção por contexto é posterior à tomada física do mesmo candle.
+        for lqLado := 1 to 2 do
+        begin
+          lqBase := (lqLado - 1) * LQCapacidadeNiveis;
+          for lqNivel := lqBase to lqBase + lqTotalNiveis[lqLado] - 1 do
+            if lqEstado[lqNivel] = LQAtivo then
+            begin
+              lqFontesValidas := 0;
+              lqFonte := lqPrimeiraFonte[lqNivel];
+              while lqFonte >= 0 do
+              begin
+                if lqFonteFim[lqFonte] < 0 then
+                begin
+                  if lqFonteTipo[lqFonte] = LQInducement then
+                  begin
+                    lqIDMSlot := lqFonteIDMSlot[lqFonte];
+                    if (idmEstado[lqIDMSlot] <> IDMAtivo) or (idmID[lqIDMSlot] <> lqFonteRef[lqFonte]) then
+                      lqFonteFim[lqFonte] := smcBarra;
+                  end;
+                  if lqSessaoTroca and (lqFonteTipo[lqFonte] = LQSessaoAnterior) then
+                    lqFonteFim[lqFonte] := smcBarra;
+                  if lqFonteFim[lqFonte] < 0 then
+                    lqFontesValidas := lqFontesValidas + 1;
+                end;
+                lqFonte := lqFonteProxima[lqFonte];
+              end;
+              if lqFontesValidas = 0 then
+              begin
+                lqEstado[lqNivel] := LQSemFonte;
+                lqFim[lqNivel] := smcBarra;
+                lqDiaFim[lqNivel] := smcDataConfirmada;
+                lqHoraFim[lqNivel] := smcHoraConfirmada;
+              end;
+            end;
+        end;
+
+        // Fontes entram pelo mesmo registro, após o monitoramento dos níveis anteriores.
+        for lqGrupoFonte := -2 to IDMParticoes do
+        begin
+          lqQtdEntradas := 0;
+          if lqGrupoFonte = -2 then
+          begin
+          if lqPublico and FonteEQH_EQL then
+              lqQtdEntradas := smcLotes[smcQuadro];
+          end
+          else if lqGrupoFonte = -1 then
+          begin
+            if lqSessaoNova then
+              lqQtdEntradas := 2;
+          end
+          else if lqGrupoFonte = 0 then
+            lqQtdEntradas := 4
+          else if lqPublico and FonteIDM and idmCalcula and ((lqGrupoFonte < 3) or (lqGrupoFonte > 4)) then
+            lqQtdEntradas := idmUsados[lqGrupoFonte];
+          for lqEntrada := 1 to lqQtdEntradas do
+          begin
+            lqElegivel := False;
+            lqIDMSlot := -1;
+            if lqGrupoFonte = -2 then
+            begin
+              lqCandleEQ := smcPrimeiro + lqEntrada - 1;
+              if (smcEventoFaixa[lqCandleEQ] = 15) or (smcEventoFaixa[lqCandleEQ] = 16) then
+              begin
+                lqLado := smcEventoFaixa[lqCandleEQ] - 14;
+                lqOrigem := smcEventoRef[lqCandleEQ];
+                lqOrigemPar := smcEventoOrigem[lqCandleEQ];
+                lqPrecoTicks := Round(smcEventoLo[lqCandleEQ] / smcTick);
+                lqPrecoPar := Round(smcEventoHi[lqCandleEQ] / smcTick);
+                if ((lqLado = 1) and (lqPrecoPar > lqPrecoTicks))
+                  or ((lqLado = 2) and (lqPrecoPar < lqPrecoTicks)) then
+                begin
+                  lqOrigem := lqOrigemPar;
+                  lqPrecoTicks := lqPrecoPar;
+                end;
+                lqRef := smcBarra;
+                lqTipo := LQPoolEQ;
+                lqElegivel := True;
+              end;
+            end
+            else if lqGrupoFonte = -1 then
+            begin
+              lqLado := lqEntrada;
+              lqOrigem := lqSessaoOrigem[lqLado];
+              lqRef := lqSessaoChave;
+              lqPrecoTicks := lqSessaoTicks[lqLado];
+              lqTipo := LQSessaoAnterior;
+              lqElegivel := True;
+            end
+            else if lqGrupoFonte = 0 then
+            begin
+              lqPivoSlot := smcPivoNaBarra[lqEntrada];
+              lqPivoHabilitado := lqPublico and (((lqEntrada <= 2) and FonteSwingInterno)
+                or ((lqEntrada > 2) and FonteSwingExterno));
+              if (lqPivoHabilitado or (lqPrivadoBB and ((EscalaBB = 2)
+                or ((EscalaBB = 0) and (lqEntrada <= 2)) or ((EscalaBB = 1) and (lqEntrada > 2)))))
+                and (lqPivoSlot >= 0) then
+              begin
+                lqLado := Mod(lqEntrada - 1, 2) + 1;
+                if not lqPivoHabilitado then
+                  lqLado := lqLado + 2;
+                lqOrigem := smcEventoOrigem[lqPivoSlot];
+                lqRef := smcBarra;
+                lqPrecoTicks := Round(smcEventoLo[lqPivoSlot] / smcTick);
+                lqTipo := LQPivoInterno;
+                if lqEntrada > 2 then
+                  lqTipo := LQPivoSwing;
+                lqElegivel := smcPivoValido[lqEntrada];
+                if not lqElegivel then
+                begin
+                  lqDiagnostico[lqLado] := LQDadosInvalidos;
+                  lqBarraDiagnostico[lqLado] := smcBarra;
+                end;
+              end;
+            end
+            else
+            begin
+              lqIDMSlot := (lqGrupoFonte - 1) * IDMCapacidade + lqEntrada - 1;
+              if (idmEstado[lqIDMSlot] = IDMAtivo) and (idmAtivacao[lqIDMSlot] = smcBarra) then
+              begin
+                lqLado := 2 - Mod(lqGrupoFonte - 1, 2);
+                lqOrigem := idmOrigem[lqIDMSlot];
+                lqRef := idmID[lqIDMSlot];
+                lqPrecoTicks := idmNivelTicks[lqIDMSlot];
+                lqTipo := LQInducement;
+                lqElegivel := True;
+              end;
+            end;
+
+            if lqElegivel then
+            begin
+              lqDirecao := 1;
+              if Mod(lqLado, 2) = 0 then
+                lqDirecao := -1;
+              lqJanela := smcBarra - lqOrigem;
+              lqElegivel := (lqOrigem >= 0) and (lqJanela >= 0) and (smcBarrasValidas > lqJanela);
+              lqResultado := LQDadosInvalidos;
+              if lqElegivel then
+              begin
+                lqResultado := LQFonteConsumida;
+                lqInc := 1;
+                while lqElegivel and (lqTipo <> LQSessaoAnterior) and (lqInc <= lqJanela) do
+                begin
+                  lqExtremo := Round(High[lqInc] / smcTick);
+                  if lqDirecao = -1 then
+                    lqExtremo := Round(Low[lqInc] / smcTick);
+                  lqElegivel := (lqExtremo - lqPrecoTicks) * lqDirecao <= 0;
+                  lqInc := lqInc + 1;
+                end;
+              end;
+              if not lqElegivel then
+              begin
+                lqDiagnostico[lqLado] := lqResultado;
+                lqBarraDiagnostico[lqLado] := smcBarra;
+              end;
+            end;
+
+            if lqElegivel then
+            begin
+              lqBase := (lqLado - 1) * LQCapacidadeNiveis;
+              lqSlot := -1;
+              lqVaga := -1;
+              lqTerminal := -1;
+              for lqNivel := lqBase to lqBase + lqTotalNiveis[lqLado] - 1 do
+                if lqEstado[lqNivel] = LQAtivo then
+                begin
+                  if lqTicks[lqNivel] = lqPrecoTicks then
+                    lqSlot := lqNivel;
+                end
+                else if lqEstado[lqNivel] = LQLivre then
+                  lqVaga := lqNivel
+                else if (lqDesfecho[lqNivel] <> LQAguardaRecuperacao)
+                  and (lqConfirmacao[lqNivel] <> LQConfirmacaoPendente) then
+                begin
+                  lqMomentoTerminal := lqFim[lqNivel];
+                  if lqBarraDesfecho[lqNivel] >= 0 then
+                    lqMomentoTerminal := lqBarraDesfecho[lqNivel];
+                  if lqConfirmacaoEm[lqNivel] >= 0 then
+                    lqMomentoTerminal := lqConfirmacaoEm[lqNivel];
+                  if lqTerminal < 0 then
+                    lqTerminal := lqNivel
+                  else
+                  begin
+                    lqMomentoOutro := lqFim[lqTerminal];
+                    if lqBarraDesfecho[lqTerminal] >= 0 then
+                      lqMomentoOutro := lqBarraDesfecho[lqTerminal];
+                    if lqConfirmacaoEm[lqTerminal] >= 0 then
+                      lqMomentoOutro := lqConfirmacaoEm[lqTerminal];
+                    if (lqMomentoTerminal < lqMomentoOutro)
+                      or ((lqMomentoTerminal = lqMomentoOutro) and (lqID[lqNivel] < lqID[lqTerminal])) then
+                      lqTerminal := lqNivel;
+                  end;
+                end;
+
+              lqDuplicado := False;
+              if lqSlot >= 0 then
+              begin
+                lqFonte := lqPrimeiraFonte[lqSlot];
+                while (lqFonte >= 0) and not lqDuplicado do
+                begin
+                  lqDuplicado := (lqFonteTipo[lqFonte] = lqTipo) and (lqFonteOrigem[lqFonte] = lqOrigem)
+                    and (lqFonteRef[lqFonte] = lqRef);
+                  lqFonte := lqFonteProxima[lqFonte];
+                end;
+              end;
+              if not lqDuplicado then
+              begin
+                if (lqTerminal >= 0) and (((lqSlot < 0) and (lqVaga < 0) and (lqTotalNiveis[lqLado] = LQCapacidadeNiveis))
+                  or ((lqFontesLivres[lqLado] < 0) and (lqTotalFontes[lqLado] = LQCapacidadeFontes))) then
+                begin
+                  lqFonte := lqPrimeiraFonte[lqTerminal];
+                  while lqFonte >= 0 do
+                  begin
+                    lqProximaFonte := lqFonteProxima[lqFonte];
+                    lqFonteProxima[lqFonte] := lqFontesLivres[lqLado];
+                    lqFontesLivres[lqLado] := lqFonte;
+                    lqFonte := lqProximaFonte;
+                  end;
+                  lqEstado[lqTerminal] := LQLivre;
+                  lqVaga := lqTerminal;
+                end;
+
+                if ((lqSlot >= 0) or (lqVaga >= 0) or (lqTotalNiveis[lqLado] < LQCapacidadeNiveis))
+                  and ((lqFontesLivres[lqLado] >= 0) or (lqTotalFontes[lqLado] < LQCapacidadeFontes)) then
+                begin
+                  if lqSlot < 0 then
+                  begin
+                    lqSlot := lqVaga;
+                    if lqSlot < 0 then
+                    begin
+                      lqSlot := lqBase + lqTotalNiveis[lqLado];
+                      lqTotalNiveis[lqLado] := lqTotalNiveis[lqLado] + 1;
+                    end;
+                    if lqLado <= 2 then
+                    begin
+                      lqIDTotal := lqIDTotal + 1;
+                      lqID[lqSlot] := lqIDTotal;
+                    end
+                    else
+                    begin
+                      lqIDLadoBB := lqIDLadoBB + 1;
+                      lqID[lqSlot] := 1000000000 + lqIDLadoBB;
+                    end;
+                    lqEstado[lqSlot] := LQAtivo;
+                    lqOrigemNivel[lqSlot] := lqOrigem;
+                    lqTicks[lqSlot] := lqPrecoTicks;
+                    lqPrimeiraFonte[lqSlot] := -1;
+                    lqAtivacao[lqSlot] := smcBarra;
+                    lqDia[lqSlot] := smcDataConfirmada;
+                    lqHora[lqSlot] := smcHoraConfirmada;
+                    lqFim[lqSlot] := -1;
+                    lqDiaFim[lqSlot] := 0;
+                    lqHoraFim[lqSlot] := 0;
+                    lqExtremoTomada[lqSlot] := 0;
+                    lqPenetracaoTicks[lqSlot] := 0;
+                    lqPublicacao[lqSlot] := -1;
+                    lqDiaPublicacao[lqSlot] := 0;
+                    lqHoraPublicacao[lqSlot] := 0;
+                    lqDesfecho[lqSlot] := 0;
+                    lqBarraDesfecho[lqSlot] := -1;
+                    lqDiaDesfecho[lqSlot] := 0;
+                    lqHoraDesfecho[lqSlot] := 0;
+                    lqPublicacaoDesfecho[lqSlot] := -1;
+                    lqDiaPublicacaoDesfecho[lqSlot] := 0;
+                    lqHoraPublicacaoDesfecho[lqSlot] := 0;
+                    lqExtremoCaptura[lqSlot] := 0;
+                    lqConfirmacao[lqSlot] := 0;
+                    lqConfirmacaoEm[lqSlot] := -1;
+                    lqConfirmacaoPublicacao[lqSlot] := -1;
+                    lqConfirmacaoReagiu[lqSlot] := False;
+                    lqConfirmacaoCruzou[lqSlot] := False;
+                    lqConfirmacaoRompeu[lqSlot] := False;
+                  end;
+                  lqFonte := lqFontesLivres[lqLado];
+                  if lqFonte >= 0 then
+                    lqFontesLivres[lqLado] := lqFonteProxima[lqFonte]
+                  else
+                  begin
+                    lqFonte := (lqLado - 1) * LQCapacidadeFontes + lqTotalFontes[lqLado];
+                    lqTotalFontes[lqLado] := lqTotalFontes[lqLado] + 1;
+                  end;
+                  lqFonteTipo[lqFonte] := lqTipo;
+                  lqFonteOrigem[lqFonte] := lqOrigem;
+                  lqFonteRef[lqFonte] := lqRef;
+                  lqFonteIDMSlot[lqFonte] := lqIDMSlot;
+                  lqFonteAtivacao[lqFonte] := smcBarra;
+                  lqFonteFim[lqFonte] := -1;
+                  lqFonteTomada[lqFonte] := False;
+                  lqFonteProxima[lqFonte] := lqPrimeiraFonte[lqSlot];
+                  lqPrimeiraFonte[lqSlot] := lqFonte;
+                end
+                else
+                begin
+                  lqDiagnostico[lqLado] := SMCCapacityFull;
+                  lqBarraDiagnostico[lqLado] := smcBarra;
+                end;
+              end;
+            end;
+          end;
+        end;
+      end;
       smcTemAnterior := smcBarraValida;
     end;
   end;
@@ -5631,6 +6091,79 @@ begin
           PlotText(bbRotulo, bbCor, 3, 8, bbNovaLo);
         end;
     end;
+
+
+  // Slots exclusivos. A zona e ancorada na ativacao, inclusive entre sessoes.
+  if bbRevCalcula and MostrarBBEstrutural and LastBarOnChart and (CurrentBar > 0)
+    and (ModoFaixaOB >= 9) and (ModoFaixaOB <= 12) and (smcOrigemPublicada = CurrentBar - 1)
+    and (OrdemFaixaSMC >= 1) and (OrdemFaixaSMC <= BBCapacidade) then
+  begin
+    bbRevLado := 13 - ModoFaixaOB;
+    bbRevDir := 2 * (Mod(bbRevLado - 1, 2) + 1) - 3;
+    if ((bbRevDir = 1) and MostrarBBComprador) or ((bbRevDir = -1) and MostrarBBVendedor) then
+    begin
+      bbOrdem := OrdemFaixaSMC;
+      bbRank := 0;
+      bbBase := (bbRevLado - 1) * BBCapacidade;
+      bbRevFim := bbBase + bbZonaUsados[bbRevLado] - 1;
+      for bbZona := bbBase to bbRevFim do
+        if bbZonaPublicacao[bbZona] <= CurrentBar then
+        begin
+          bbRankPos := bbRank;
+          bbCriar := True;
+          while (bbRankPos > 0) and bbCriar do
+          begin
+            bbOutro := bbZonaRanking[bbRankPos];
+            bbCriar := (bbZonaAtivacao[bbZona] > bbZonaAtivacao[bbOutro])
+              or ((bbZonaAtivacao[bbZona] = bbZonaAtivacao[bbOutro])
+                and ((bbZonaOrigem[bbZona] > bbZonaOrigem[bbOutro])
+                  or ((bbZonaOrigem[bbZona] = bbZonaOrigem[bbOutro]) and (bbZonaOB[bbZona] > bbZonaOB[bbOutro]))));
+            if bbCriar then
+            begin
+              if bbRankPos < bbOrdem then
+                bbZonaRanking[bbRankPos + 1] := bbOutro;
+              bbRankPos := bbRankPos - 1;
+            end;
+          end;
+          if bbRankPos < bbOrdem then
+          begin
+            bbZonaRanking[bbRankPos + 1] := bbZona;
+            if bbRank < bbOrdem then
+              bbRank := bbRank + 1;
+          end;
+        end;
+
+      if bbRank >= bbOrdem then
+      begin
+        bbZona := bbZonaRanking[bbOrdem];
+        bbZonaCentro := (bbZonaLo[bbZona] + bbZonaHi[bbZona]) / 2;
+        bbZonaAltura := (bbZonaHi[bbZona] - bbZonaLo[bbZona]) / 2;
+        bbRotulo := "BB-";
+        bbCor := RGB(255, 0, 0);
+        if bbRevDir = 1 then
+        begin
+          bbRotulo := "BB+";
+          bbCor := RGB(0, 128, 0);
+        end;
+        if bbRevLado > 2 then
+          bbRotulo := bbRotulo + " S"
+        else
+          bbRotulo := bbRotulo + " I";
+        if bbZonaModelo[bbZona] = 0 then
+          bbRotulo := bbRotulo + " Strict"
+        else
+          bbRotulo := bbRotulo + " Flexible";
+        bbDataFim := 0;
+        if bbZonaHora[bbZona] <> 0 then
+          bbDataFim := bbZonaData[bbZona];
+        HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, bbRotulo, 8, 1,
+          bbZonaData[bbZona], bbDataFim, bbZonaAltura, bbZonaHora[bbZona], 2359);
+        if (bbZonaHora[bbZona] <> 0) and (dataCandle > bbZonaData[bbZona]) then
+          HorizontalLineCustom(bbZonaCentro, bbCor, 1, 0, "", 8, 1,
+            CalcDate(bbZonaData[bbZona], 1), 0, bbZonaAltura);
+      end;
+    end;
+  end;
 
   // Cada posição visual tem uma chamada fixa, como no desenho do IDM.
   if lqCalcula and HabilitarCapturasLiquidez and (ModoFaixaOB = 0) and LastBarOnChart and (CurrentBar > 0)

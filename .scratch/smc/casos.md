@@ -100,3 +100,12 @@ Com tick 1, considere um topo em 115 confirmado na barra 2 e um fundo intermedi�
 - Se a barra 8 atingir 99 e fechar em 121, a remoção por pavio do OB legado preserva o registro qualificado com limites 101–106. Se fechar em 100, registrar remoção por fechamento. Se o OB for retirado antes de qualificar, o adaptador não publica marcador.
 - Um fechamento anterior a `u` abaixo da faixa rejeita o candidato. Um fechamento dentro da faixa preserva a saída anterior como evidência enquanto a borda oposta estiver intacta.
 - Com `DebugSMC=False`, conferir que os registros são produzidos e os marcadores ficam ocultos. Com `ModoBB=0`, comparar a faixa legada com a revisão aceita da 11C. [Tarefa 12A](tasks/12A-breaker-compatibilidade.md)
+
+## Breaker estrutural confirmado
+
+Considere fluxo swing de baixa, fundo de referência em 100, topo intermediário em 127 e OB vendedor LuxAlgo de 119–125 confirmado na barra 20. Com tick 1, uma mínima de 98 e fechamento em 102 na barra 21 fazem um LG em 100. Na barra 22, uma máxima e fechamento em 126 confirmam a falha do OB e preservam o topo intermediário. Na barra 23, o fechamento em 134 confirma a quebra de 127. Se o deslocamento de reversão qualificar, o Strict publica a faixa compradora 119–125 na barra 24, ancorada na barra 23.
+
+- Para inverter a ordem, usar buffer da falha de 7 ticks e fechamento em 128 na barra 22. A quebra estrutural vem primeiro e a falha ocorre no fechamento em 134. Com o prazo entre quebras de 1 barra, os dois arranjos são válidos.
+- Para SW ou SH, deixar a barra 20 confirmar o OB e fechar abaixo de 100. Recuperar 100 na barra 21 ou 22. No SH, a recuperação e a quebra de 127 podem acontecer na mesma barra.
+- Sem tomada de 100, o Flexible com filtros desligados pode publicar após falha e quebra. Em BOTH, quando os dois modelos confirmam juntos, a faixa é única e o rótulo diz Strict.
+- Com o debug desligado, executar nos slots 9 a 12 e alternar a ordem 1/2 quando houver duas zonas na mesma escala e direção. Conferir a faixa, a âncora e o rótulo após recarga e virada de sessão. [Tarefa 12B](tasks/12B-breaker-estrutural.md)

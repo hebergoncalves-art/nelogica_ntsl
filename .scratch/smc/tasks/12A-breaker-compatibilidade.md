@@ -1,6 +1,6 @@
 # 12A — Compatibilidade do Breaker e candidatos a OB
 
-Status: ready-for-human
+Status: aceita
 
 Depende do aceite da [11C](11C-liquidez-avancada.md). Cobre o Breaker legado e a preparação das fontes de OB descritos nas seções E1 e E2 da [spec](../SPEC_evolucao.md#e-breaker-block--entrega-12).
 
@@ -26,7 +26,7 @@ Depende do aceite da [11C](11C-liquidez-avancada.md). Cobre o Breaker legado e a
 
 ## Validação no Profit Pro
 
-Compilação e Replay pendentes.
+O usuário informou em 24/11/2026 que os testes da 12A passaram e autorizou a 12B. O aceite se refere ao commit `d8cf9f7` e ao SHA-256 acima. Os prints mostram marcadores ICT e LuxAlgo no Profit. Versão, ativo, período, parâmetros e resultados individuais do Replay não foram informados.
 
 1. Compilar a revisão 12A. Com `ModoBB=0`, `MostrarBreakerBlocks=True` e `MostrarFVG=False`, comparar os modos de faixa 1 e 2 com a revisão aceita da 11C. Conferir as ordens 1 e 2, a ancoragem em C, a virada de sessão e a retirada por fechamento.
 2. Com `ModoBB=1`, `ModoFaixaOB=0` e `DebugSMC=True`, testar `FonteOBBB=0` e `1` no mesmo histórico. Conferir a origem do OB, as evidências de qualificação e o marcador na barra seguinte. Repetir com os desenhos de OB ocultos. Conferir barras com confirmações simultâneas.

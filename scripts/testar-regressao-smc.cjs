@@ -28,6 +28,7 @@ const acceptedLiquiditySource = execFileSync('git', ['show', `${liquidityCommit}
 const recoveryCommit = '1337ca4';
 const acceptedRecoverySource = execFileSync('git', ['show', `${recoveryCommit}:${path}`], { cwd: root });
 const acceptedAdvancedLiquiditySource = execFileSync('git', ['show', `6fad88b:${path}`], { cwd: root });
+const acceptedBreakerSource = execFileSync('git', ['show', `d8cf9f7:${path}`], { cwd: root });
 const candidate = readFileSync(join(root, path));
 const sha = (data) => createHash('sha256').update(data).digest('hex');
 
@@ -297,6 +298,7 @@ const acceptedIDM = compile(acceptedIDMSource);
 const acceptedLiquidity = compile(acceptedLiquiditySource);
 const acceptedRecovery = compile(acceptedRecoverySource);
 const acceptedAdvancedLiquidity = compile(acceptedAdvancedLiquiditySource);
+const acceptedBreaker = compile(acceptedBreakerSource);
 const updated = compile(candidate);
 
 function dated(rows) {
@@ -437,6 +439,77 @@ function breakerCandidateFixture({ side = 1, scale = 0, source = 0, mode = 1, de
       .map(([, label, , , , price]) => [index, label, price]);
   });
   return { model, markers, slot: (lane - 1) * 100 };
+}
+
+function structuralBreakerFixture({ side = 1, scale = 1, source = 0, mode = 3, pattern = 'LG',
+  recoveryAtBreak = false, repeat = false, historical = false, replace = {}, config = {}, removal = -1 } = {}) {
+  const rows = [
+    [145, 146, 144, 145], [145, 150, 144, 147], [141, 143, 136, 138], [120, 122, 116, 118],
+    [124, 129, 123, 127], [133, 140, 132, 136], [124, 130, 121, 126], [114, 116, 110, 112],
+    [116, 121, 115, 117], [128, 135, 127, 132], [119, 123, 113, 115], [115, 116, 107, 108],
+    [108, 109, 100, 103], [104, 114, 103, 112], [120, 127, 119, 126], [126, 126, 121, 122],
+    [122, 123, 117, 120], [120, 121, 107, 111], [111, 116, 109, 114], [114, 117, 111, 115],
+    [115, 116, 101, 103], [103, 106, 98, 102], [103, 112, 102, 109], [110, 135, 109, 134],
+    [133, 136, 132, 135], [134, 137, 131, 136],
+  ];
+  if (pattern === 'NONE') rows[21] = [103, 106, 101, 102];
+  if (pattern === 'SW' || pattern === 'SH') {
+    rows[20] = [115, 116, 96, 98];
+    rows[21] = pattern === 'SW' ? [98, 110, 97, 108] : [98, 101, 95, 99];
+    if (pattern === 'SH') rows[22] = recoveryAtBreak ? [99, 135, 98, 134] : [99, 112, 98, 109];
+  }
+  Object.entries(replace).forEach(([index, row]) => { rows[index] = row; });
+  const mirror = (price) => side === 1 ? price : 250 - price;
+  const bars = dated(side === 1 ? rows : rows.map(([o, h, l, c]) => [mirror(o), mirror(l), mirror(h), mirror(c)]));
+  const top = scale * 2 + (side === 1 ? 1 : 2);
+  const bottom = scale * 2 + (side === 1 ? 2 : 1);
+  const facts = {};
+  const publish = (bar, item) => { (facts[bar] ??= []).push(item); };
+  for (const [confirm, lane, origin, price] of [[2, top, 1, 150], [4, bottom, 3, 116],
+    [6, top, 5, 140], [8, bottom, 7, 110], [10, top, 9, 135], [11, bottom + 4, 7, 110],
+    [13, bottom, 12, 100], [16, top, 14, 127]]) publish(confirm, fact(lane, origin, mirror(price)));
+  if (scale === 1) publish(13, fact(bottom - 2, 12, mirror(100)));
+  const takeOnQualification = pattern === 'SW' || pattern === 'SH';
+  if (!takeOnQualification) publish(18, fact(bottom, 17, mirror(107)));
+  publish(20, fact(bottom + 4, takeOnQualification ? 12 : 17, mirror(takeOnQualification ? 100 : 107)));
+  if (source === 1) {
+    const snapshot = { lane: bottom + 8, origin: 14, ref: takeOnQualification ? 12 : 17,
+      price: Math.min(mirror(119), mirror(125)), hi: Math.max(mirror(119), mirror(125)) };
+    publish(20, { ...snapshot, state: 0 });
+    if (removal >= 0) publish(removal, { ...snapshot, state: 2, birth: 20 });
+  }
+  const model = runtime(updated, bars, { ModoBB: mode, PeriodoSwing: 500, PeriodoATRSMC: 2,
+    EscalaBB: scale, FonteOBBB: source, DebugSMC: false, MostrarEstruturaInterna: false, DispATRBB: 0,
+    ModoFaixaOB: scale ? (side === 1 ? 9 : 10) : (side === 1 ? 11 : 12), MostrarBBEstrutural: true, ...config });
+  const draws = bars.map((_, index) => {
+    if (index > 0) stageFacts(model, index - 1, facts[index - 1] ?? []);
+    const last = !historical || index === bars.length - 1;
+    const drawing = model.step(index, last);
+    if (repeat) assert.deepEqual(model.step(index, last), drawing);
+    return horizontal(drawing).filter(([, , , , , label]) => label.startsWith('BB'));
+  });
+  return { model, draws, bars, lane: bottom };
+}
+
+function structuralBreakerHistory(take) {
+  const vertices = [[0, 140], [12, 149], [27, 116], [43, 139], [58, 109], [72, 134], [86, 100],
+    [101, 126], [114, 107], [122, 116], [123, 114], [124, 103], [125, 102], [126, 109], [127, 134], [130, 136]];
+  const rows = [];
+  for (let piece = 0; piece < vertices.length - 1; piece++) {
+    const [first, start] = vertices[piece];
+    const [last, end] = vertices[piece + 1];
+    for (let index = first; index < last; index++) {
+      const close = Math.round(start + (end - start) * (index - first) / (last - first));
+      const open = index === 0 ? close : rows[index - 1][3];
+      rows.push([open, Math.max(open, close) + 1, Math.min(open, close) - 1, close]);
+    }
+  }
+  if (take === 'LG') rows[125] = [103, 104, 98, 102];
+  if (take === 'SW') {
+    rows[124] = [114, 115, 96, 98];
+    rows[125] = [98, 104, 97, 102];
+  }
+  return dated([...rows, [136, 138, 135, 137]]);
 }
 
 function scripted(closes, entries, overrides = {}, tick = 1) {
@@ -742,9 +815,15 @@ const cases = {
     ]);
     assert.deepEqual(Object.entries(updated.inputs).slice(0, Object.keys(acceptedAdvancedLiquidity.inputs).length),
       Object.entries(acceptedAdvancedLiquidity.inputs));
-    assert.deepEqual(Object.entries(updated.inputs).slice(Object.keys(acceptedAdvancedLiquidity.inputs).length), [
-      ['modobb', 0], ['mostrarbblegacy', true], ['fonteobbb', 0], ['escalabb', 2],
-      ['maxbuscaorigemobbb', 20], ['dispatrbb', 1], ['corpominbb', 0.65], ['maxcandlesdispbb', 3], ['maxidadeobbb', 150],
+    assert.equal(sha(acceptedBreakerSource), '028c8001e0d5c0b6a7b48092c5a595a2092316b37b2c0e7047d191364ddee2ad');
+    assert.deepEqual(Object.entries(updated.inputs).slice(0, Object.keys(acceptedBreaker.inputs).length),
+      Object.entries(acceptedBreaker.inputs));
+    assert.deepEqual(Object.entries(updated.inputs).slice(Object.keys(acceptedBreaker.inputs).length), [
+      ['mostrarbbestrutural', false], ['ordemfaixasmc', 1], ['mostrarbbcomprador', true], ['mostrarbbvendedor', true],
+      ['tipoquebrabb', 0], ['aceitarlg', true], ['aceitarsw', true], ['aceitarsh', true], ['exigirobfresh', false],
+      ['minreacaobbatr', 0.5], ['bufferfalhaobticks', 1], ['bufferestruturabbticks', 1],
+      ['maxbarrasobparacaptura', 80], ['maxbarrascapturaquebra', 30], ['maxbarrasentrequebras', 10],
+      ['permitirgapbb', false], ['filtrocapturaflexbb', 0], ['filtrodispreversaoflexbb', 0],
     ]);
     for (const [name, value] of Object.entries(original.constants)) assert.equal(updated.constants[name], value, name);
     return 'hash de referência, 26 inputs e constantes legadas conferidos. Compilação PENDENTE';
@@ -2607,6 +2686,161 @@ const cases = {
         .some((slot) => quiet.element('bbconfirmacao', slot) >= 0);
     }));
     return 'duas fontes geradas por OHLC, inclusive com OB e debug ocultos, e paridade nos cinco modos legados';
+  },
+  E01() {
+    for (const side of [1, -1]) {
+      for (const scale of [0, 1]) {
+        for (const source of [0, 1]) {
+          const options = { side, scale, source, mode: 2, pattern: 'NONE' };
+          const { draws, bars } = structuralBreakerFixture({ ...options, repeat: true });
+          assert.ok(draws.slice(0, 24).every((lines) => lines.length === 0));
+          const [zone] = draws[24];
+          const center = source === 1 ? 122 : 123;
+          const color = side === 1 ? 32768 : 255;
+          const label = `BB${side === 1 ? '+' : '-'} ${scale ? 'S' : 'I'} Flexible`;
+          assert.deepEqual([zone[1], zone[2], zone[5], zone[8], zone[10], zone[11]],
+            [side === 1 ? center : 250 - center, color, label, bars[23][4], source === 1 ? 3 : 4, bars[23][5]]);
+          assert.deepEqual(structuralBreakerFixture({ ...options, historical: true }).draws.at(-1), draws.at(-1));
+        }
+      }
+    }
+    assert.ok(structuralBreakerFixture({ mode: 0 }).draws.every((lines) => lines.length === 0));
+    assert.ok(structuralBreakerFixture({ config: { MostrarBBEstrutural: false } }).draws.every((lines) => lines.length === 0));
+    assert.ok(structuralBreakerFixture({ config: { MostrarBBComprador: false } }).draws.every((lines) => lines.length === 0));
+    assert.ok(structuralBreakerFixture({ config: { OrdemFaixaSMC: 2 } }).draws.every((lines) => lines.length === 0));
+    return 'Flexible sem captura nas duas fontes, escalas e direções, faixa original e publicação em a+1';
+  },
+  E02() {
+    for (const side of [1, -1]) {
+      for (const scale of [0, 1]) {
+        for (const source of [0, 1]) {
+          for (const [pattern, setting] of [['LG', 'AceitarLG'], ['SW', 'AceitarSW'], ['SH', 'AceitarSH']]) {
+            const options = { side, scale, source, pattern, mode: 1, recoveryAtBreak: pattern === 'SH' };
+            const { draws } = structuralBreakerFixture(options);
+            const published = pattern === 'SH' ? 23 : 24;
+            assert.ok(draws.slice(0, published).every((lines) => lines.length === 0));
+            assert.deepEqual(draws[published].map((line) => line[5]),
+              [`BB${side === 1 ? '+' : '-'} ${scale ? 'S' : 'I'} Strict`]);
+            assert.ok(structuralBreakerFixture({ ...options, config: { [setting]: false } }).draws
+              .every((lines) => lines.length === 0));
+          }
+        }
+      }
+    }
+    const both = structuralBreakerFixture({ pattern: 'LG' });
+    const slot = (both.lane - 1) * 100;
+    assert.deepEqual(both.draws[24].map((line) => line[5]), ['BB+ S Strict']);
+    assert.equal(both.model.element('bbzonaconfirmou', slot), 23);
+    assert.equal(both.model.element('bbzonaconfirmou', slot + 400), 23);
+    const protectedZone = structuralBreakerFixture({ pattern: 'SW', mode: 1,
+      config: { TipoQuebraBB: 1, BufferEstruturaBBTicks: 5 }, replace: { 22: [109, 130, 108, 129] } });
+    assert.equal(protectedZone.draws[23].length, 0);
+    assert.equal(protectedZone.draws[24][0][5], 'BB+ S Strict');
+    assert.ok(structuralBreakerFixture({ pattern: 'LG', mode: 1, config: { TipoQuebraBB: 1 } }).draws
+      .every((lines) => lines.length === 0));
+    return 'Strict com LG, SW e SH, u=t0, r=b, quebra protegida com buffer e uma faixa em BOTH';
+  },
+  E03() {
+    const see = (options) => structuralBreakerFixture({ mode: 1, ...options }).draws.findIndex((lines) => lines.length > 0);
+    assert.equal(see({ source: 1, config: { MaxBarrasOBParaCaptura: 1, MaxBarrasCapturaQuebra: 2, MaxIdadeOBBB: 3 } }), 24);
+    assert.equal(see({ config: { MaxBarrasCapturaQuebra: 1 } }), -1);
+    assert.equal(see({ source: 1, config: { MaxIdadeOBBB: 2 } }), -1);
+    const takeLater = { 21: [103, 106, 101, 102], 22: [102, 111, 98, 109] };
+    assert.equal(see({ replace: takeLater, config: { MaxBarrasOBParaCaptura: 1 } }), -1);
+    assert.equal(see({ replace: takeLater, config: { MaxBarrasOBParaCaptura: 2 } }), 24);
+    const gap = { 23: [130, 137, 129, 136] };
+    assert.equal(see({ replace: gap }), -1);
+    assert.equal(see({ replace: gap, config: { PermitirGapBB: true } }), 24);
+    assert.equal(see({ replace: { 21: [103, 128, 98, 104] } }), -1);
+    assert.equal(see({ replace: { 22: [103, 105, 96, 97] } }), -1);
+    assert.equal(see({ replace: { 22: [103, 105, 98, 109] } }), -1);
+    assert.equal(see({ source: 1, removal: 21 }), 24);
+    assert.equal(see({ source: 1, removal: 21, replace: takeLater }), -1);
+    assert.equal(see({ source: 1, pattern: 'SW', removal: 21 }), 24);
+    assert.equal(see({ replace: { 21: [103, 119, 101, 104], 22: [104, 111, 98, 109] },
+      config: { ExigirOBFresh: true } }), -1);
+    const first = structuralBreakerFixture({ source: 1, mode: 1, replace: { 22: [109, 126, 108, 126] },
+      config: { MaxBarrasEntreQuebras: 1 } });
+    const reverse = structuralBreakerFixture({ source: 1, mode: 1, replace: { 22: [109, 129, 108, 128] },
+      config: { MaxBarrasEntreQuebras: 1, BufferFalhaOBTicks: 7 } });
+    for (const [run, timestamps] of [[first, [22, 23]], [reverse, [23, 22]]]) {
+      const zone = (run.lane - 1) * 100;
+      assert.equal(run.draws[23].length, 0);
+      assert.equal(run.draws[24].length, 1);
+      assert.deepEqual(['bbzonafalha', 'bbzonaquebra'].map((field) => run.model.element(field, zone)), timestamps);
+    }
+    assert.equal(see({ source: 1, replace: { 21: [103, 126, 98, 126] }, config: { MaxBarrasEntreQuebras: 1 } }), -1);
+    return 'f/b nos dois sentidos temporais, prazos inclusivos, gap, invalidez, contexto, fresh e snapshot LuxAlgo';
+  },
+  E04() {
+    const weakReversal = { 22: [109, 114, 102, 109], 23: [132, 140, 109, 134] };
+    const both = structuralBreakerFixture({ replace: weakReversal });
+    assert.deepEqual(both.draws[24].map((line) => line[5]), ['BB+ S Flexible']);
+    const none = { pattern: 'NONE', mode: 2, replace: weakReversal };
+    assert.equal(structuralBreakerFixture({ ...none, config: { FiltroCapturaFlexBB: 1, FiltroDispReversaoFlexBB: 1 } })
+      .draws[24][0][5], 'BB+ S Flexible');
+    for (const filter of ['FiltroCapturaFlexBB', 'FiltroDispReversaoFlexBB']) {
+      assert.ok(structuralBreakerFixture({ ...none, config: { [filter]: 2 } }).draws.every((lines) => lines.length === 0));
+      assert.equal(structuralBreakerFixture({ mode: 2, config: { [filter]: 2 } }).draws[24][0][5], 'BB+ S Flexible');
+    }
+
+    for (const take of ['NONE', 'LG', 'SW']) {
+      const bars = structuralBreakerHistory(take);
+      const config = { ModoBB: 3, PeriodoSwing: 10, UsarATRBlocos: false, PeriodoATRSMC: 3, DispATRBB: 0.5,
+        MostrarBBEstrutural: true, ModoFaixaOB: 9, FonteOBBB: take === 'SW' ? 1 : 0 };
+      const model = runtime(updated, bars, config);
+      const zones = bars.map((_, index) => horizontal(model.step(index)).filter((line) => line[5].startsWith('BB')));
+      assert.ok(zones.slice(0, 128).every((lines) => lines.length === 0));
+      const [zone] = zones[128];
+      assert.deepEqual([zone[5], zone[8], zone[11]], [`BB+ S ${take === 'NONE' ? 'Flexible' : 'Strict'}`, bars[127][4], bars[127][5]]);
+      if (take !== 'SW') assert.deepEqual([zone[1], zone[10]], [125, 2]);
+    }
+    return 'filtros opcionais e obrigatórios, e confirmação pelas duas fontes usando somente OHLC';
+  },
+  E05() {
+    const bars = prices.slice(0, 430);
+    for (const ModoFaixaOB of [0, 1, 2, 3, 4]) {
+      const config = { ModoFaixaOB, PeriodoSwing: 10, MostrarBreakerBlocks: true, MostrarFlip: true, HabilitarFlip: true,
+        MostrarCapturasLiquidez: true, HabilitarCapturasLiquidez: true, FonteSwingExterno: false, FonteSwingInterno: true };
+      for (const mode of [0, 3]) {
+        const settings = { ...config, ModoBB: mode };
+        const previous = runtime(acceptedBreaker, bars, settings);
+        const current = runtime(updated, bars, settings);
+        bars.forEach((_, index) => assert.deepEqual(current.step(index), previous.step(index)));
+        assert.deepEqual(liquidityArchive(current), liquidityArchive(previous));
+      }
+    }
+    for (const FonteSwingExterno of [true, false]) {
+      const shared = structuralBreakerFixture({ mode: 1, config: { HabilitarCapturasLiquidez: true, FonteSwingExterno } });
+      const slot = (shared.lane - 1) * 100;
+      const [level] = liquidityArchive(shared.model).filter(({ side, ticks, fim }) => side === 2 && ticks === 100 && fim === 21);
+      assert.equal(shared.model.element('bbzonacaptura', slot), level.id);
+    }
+    return 'paridade 12A e liquidez pública com a dependência oculta ativa, incluindo ID da captura compartilhada';
+  },
+  E06() {
+    const rows = structuralBreakerHistory('LG').map((bar) => bar.slice(0, 4));
+    const bars = dated([...rows, ...rows.map((bar) => bar.map((price) => price + 5)),
+      ...Array.from({ length: 12 }, () => [142, 143, 141, 142])]);
+    const config = { ModoBB: 3, PeriodoSwing: 10, UsarATRBlocos: false, PeriodoATRSMC: 3, DispATRBB: 0.5,
+      MostrarBBEstrutural: true, ModoFaixaOB: 9 };
+    const levels = [1, 2, 3].map((OrdemFaixaSMC) => {
+      const model = runtime(updated, bars, { ...config, OrdemFaixaSMC });
+      let last;
+      bars.forEach((_, index) => { last = model.step(index, index === bars.length - 1); });
+      assert.deepEqual(model.step(bars.length - 1), last);
+      return horizontal(last);
+    });
+    for (const [position, original] of [[0, 258], [1, 127]]) {
+      const [first, next] = levels[position];
+      assert.equal(levels[position].length, 2);
+      assert.deepEqual([first[1], first[5], first[8], first[10], first[11]],
+        [position === 0 ? 130 : 125, 'BB+ S Strict', bars[original][4], 2, bars[original][5]]);
+      assert.equal(next[5], '');
+      assert.equal(next[8], calcDate(bars[original][4], 1));
+    }
+    assert.deepEqual(levels[2], []);
+    return 'ordens 1 e 2 mantêm preço e âncora das duas zonas, sem rótulo repetido na virada da sessão';
   },
   I07() {
     const options = { length: 21, envelope: { 18: [106, 110, 99, 108] } };
