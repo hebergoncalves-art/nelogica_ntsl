@@ -34,6 +34,9 @@ const
   BBRevGap = 6;
   BBRevSemDeslocamento = 7;
   BBRevDadosInvalidos = 8;
+  BBRevFiltroAusente = 9;
+  BBRevPrazoFVG = 10;
+  IntegracaoFVGUltimo = 199;
   // 08A: dois lotes de 320, com maximo de 315 fatos por barra:
   // 204 OB, 101 FVG, 6 estruturais, 1 EQ, 1 PD e 2 snapshots de fluxo.
   SMCLote = 320;
@@ -174,23 +177,23 @@ const
   LQConfirmacaoExpirada = 5;
 
 input
-  PeriodoSwing(50);
+  PeriodoSwing(10);
   MostrarPivos(False);
-  MostrarEstruturaInterna(False);
+  MostrarEstruturaInterna(True);
   FiltroConfluenciaInterna(False);
   MostrarBlocosInternos(False);
-  MostrarBlocosSwing(False);
+  MostrarBlocosSwing(True);
   QuantidadeBlocosInternos(5);
-  QuantidadeBlocosSwing(5);
+  QuantidadeBlocosSwing(3);
   UsarATRBlocos(True);
   MitigarPorFechamento(False);
   ModoFaixaOB(0);
   OrdemFaixaOB(1);
   AncorarFaixaOB(True);
-  MostrarEQHEQL(False);
+  MostrarEQHEQL(True);
   BarrasConfirmacaoEQ(3);
   LimiarEQ(0.1);
-  MostrarFVG(False);
+  MostrarFVG(True);
   FiltroAutomaticoFVG(True);
   ExtensaoFVG(1);
   CorFVGAlta(clGreen);
@@ -204,14 +207,14 @@ input
   ToleranciaSMCTicks(1);
   BufferRupturaSMCTicks(1);
   DebugSMC(False);
-  HabilitarFlip(False);
-  MostrarFlip(False);
+  HabilitarFlip(True);
+  MostrarFlip(True);
   EscalaFlip(2);
   ReacaoMinFlipATR(0.5);
-  MaxBarrasFlip(100);
+  MaxBarrasFlip(48);
   PermitirGapFlip(True);
   MostrarCandidatosFlip(False);
-  MostrarFaixasFlip(False);
+  MostrarFaixasFlip(True);
   TipoZonaFlip(0);
   MaxBuscaOrigemFlip(30);
   FallbackPivoFlip(True);
@@ -220,13 +223,13 @@ input
   MaxLarguraFlipATR(0.0);
   ExigirFreshFlip(False);
   MeioZonaFlip(True);
-  MaxFlipVisiveis(10);
+  MaxFlipVisiveis(4);
   ModoInvalidacaoFlip(0);
   BufferInvalidacaoTicksFlip(1);
-  MostrarInvalidadasFlip(1);
+  MostrarInvalidadasFlip(0);
   OcultarMitigadasFlip(0);
   EncerrarAposMitigacaoFlip(0);
-  MaxIdadeFlip(0);
+  MaxIdadeFlip(36);
   MaxVisitasFlip(0);
   ModoRetesteFlip(0);
   ReacaoRetesteATRFlip(0.5);
@@ -236,9 +239,9 @@ input
   CorInvalidadaFlip(clGray);
   MostrarOrigemFlip(False);
   ModoFalhaFlip(0);
-  FiltroDispFlip(0);
-  FiltroFVGFlip(0);
-  FiltroVolumeFlip(0);
+  FiltroDispFlip(1);
+  FiltroFVGFlip(1);
+  FiltroVolumeFlip(1);
   DispATRFlip(1.0);
   CorpoMinFlip(0.65);
   MaxCandlesDispFlip(3);
@@ -255,8 +258,8 @@ input
   MostrarFibFlip(False);
   MostrarExtremeFlip(False);
   MostrarContinuationFlip(False);
-  HabilitarIDM(False);
-  MostrarIDM(False);
+  HabilitarIDM(True);
+  MostrarIDM(True);
   ModoIDM(0);
   MinPullbackIDMATR(0.5);
   MinReacaoIDMATR(0.5);
@@ -275,15 +278,15 @@ input
   MostrarIDMExpirados(False);
   MostrarIDMConfirmacao(True);
   MostrarPrecoIDM(True);
-  MaxIDMsVisiveis(10);
+  MaxIDMsVisiveis(4);
   MostrarIDMCandidatos(False);
   FiltroPOIIDM(0);
   FiltroFibIDM(0);
   FiltroFVGIDM(0);
   FiltroDispIDM(0);
   FiltroVolumeIDM(0);
-  HabilitarCapturasLiquidez(False);
-  MostrarCapturasLiquidez(False);
+  HabilitarCapturasLiquidez(True);
+  MostrarCapturasLiquidez(True);
   FonteIDM(True);
   FonteSwingInterno(True);
   FonteSwingExterno(True);
@@ -291,20 +294,20 @@ input
   MostrarSSL(True);
   MostrarLiquidityGrab(True);
   MinCapturaTicks(1);
-  BufferRecuperacaoTicks(0);
+  BufferRecuperacaoTicks(1);
   MinPavioGrab(0.0);
   MostrarNiveisLiquidez(False);
   MostrarLinhaCaptura(True);
   MostrarRotuloLQ(True);
   MostrarFonteLQ(True);
-  MaxCapturasLQVisiveis(20);
+  MaxCapturasLQVisiveis(8);
   MostrarSweep(True);
   MostrarStopHunt(True);
-  MaxBarrasStopHunt(5);
+  MaxBarrasStopHunt(3);
   PermitirGapPadraoLQ(False);
   MostrarRupturaPendente(False);
   MostrarBreakSemRecuperacao(False);
-  FonteEQH_EQL(False);
+  FonteEQH_EQL(True);
   FonteSessaoAnterior(False);
   InicioSessaoLQ(0);
   FimSessaoLQ(0);
@@ -313,10 +316,10 @@ input
   ReacaoPosCapturaATR(0.5);
   MaxBarrasConfirmacaoLQ(30);
   FiltroIDMFlip(0);
-  FiltroSweepFlip(0);
-  ModoCapturaFlip(0);
+  FiltroSweepFlip(1);
+  ModoCapturaFlip(2);
   // 0 LEGACY, 1 ICT STRICT, 2 SMC FLEXIBLE, 3 BOTH.
-  ModoBB(0);
+  ModoBB(1);
   MostrarBBLegacy(True);
   FonteOBBB(0);
   EscalaBB(2);
@@ -325,7 +328,7 @@ input
   CorpoMinBB(0.65);
   MaxCandlesDispBB(3);
   MaxIdadeOBBB(150);
-  MostrarBBEstrutural(False);
+  MostrarBBEstrutural(True);
   OrdemFaixaSMC(1);
   MostrarBBComprador(True);
   MostrarBBVendedor(True);
@@ -338,7 +341,7 @@ input
   BufferFalhaOBTicks(1);
   BufferEstruturaBBTicks(1);
   MaxBarrasOBParaCaptura(80);
-  MaxBarrasCapturaQuebra(30);
+  MaxBarrasCapturaQuebra(18);
   MaxBarrasEntreQuebras(10);
   PermitirGapBB(False);
   FiltroCapturaFlexBB(0);
@@ -351,20 +354,34 @@ input
   MostrarOrigemOBBB(False);
   MostrarCandidatosBB(False);
   MostrarRotuloBB(True);
-  MaxBBVisiveis(10);
+  MaxBBVisiveis(5);
   CorBBAlta(clGreen);
   CorBBBaixa(clRed);
   CorBBInvalidada(clGray);
   ModoInvalidacaoBB(0);
   BufferInvalidacaoTicksBB(1);
-  MostrarInvalidadasBB(1);
+  MostrarInvalidadasBB(0);
   OcultarMitigadasBB(0);
   EncerrarAposMitigacaoBB(0);
-  MaxIdadeBB(0);
+  MaxIdadeBB(36);
   MaxVisitasBB(0);
   ModoRetesteBB(0);
   ReacaoRetesteBBATR(0.5);
   MaxBarrasRetesteBB(20);
+  MostrarUnicorn(True);
+  MinOverlapTicks(1);
+  ExigirFVGDisponivelUnicorn(True);
+  MaxBarrasFiltroFVG_BB(2);
+  FiltroFVG_BB(1);
+  FiltroIDM_BB(1);
+  FiltroFlip_BB(1);
+  FiltroVolumeBB(1);
+  FiltroFibBB(1);
+  FibPreferencialBB(61.8);
+  FibExtremoBB(81.8);
+  MaxDistBarrasFlipBB(10);
+  MostrarScoreSMC(True);
+  AlertasSMC(False);
 
 var
   periodo, perna, vies : Integer;
@@ -715,6 +732,33 @@ var
   flipEventoLQRec, flipEventoLQTomada, flipEventoIDMRec, flipEventoIDMTomada,
     flipEventoExtremoRec, flipEventoExtremoTomada : array[0..FlipUltimoIndice] of Integer;
   idmCapturaLQ : array[0..IDMUltimoIndice] of Integer;
+  integracaoValida, bbUsaFiltros13, bbUsaFVG13, unicornCalcula, integracaoIDM,
+    integracaoFlip, bbFVGOk13, bbIDMOk13, bbFlipOk13, bbVolumeOk13, bbFibOk13,
+    bbIDMDistinto13, integracaoAlertar, unicornTermina, unicornOrdena : Boolean;
+  integracaoSlot, integracaoBase, integracaoLado, integracaoVaga,
+    integracaoLag, integracaoBarra, integracaoVolumeAlta, integracaoVolumeBaixa,
+    bbPerna13, bbScore13, bbFibFaixa13, bbEvidenciaFVG13, bbEvidenciaIDM13,
+    bbEvidenciaFlip13, bbEvidenciaVolume13, integracaoSemVaga, integracaoConfigInvalida,
+    unicornEscolhido, unicornFVG,
+    unicornPosicao, unicornOrdenados, unicornInsercao, unicornOutro,
+    unicornDataDireita, unicornHoraDireita, unicornCor, alertaPrimeiraBarra : Integer;
+  integracaoVolume, bbFibMin13, bbFibMax13, bbFibRetracao13,
+    unicornLo, unicornHi, unicornCentro, unicornAltura : Float;
+  unicornRotulo : String;
+  integracaoFVGBarra, integracaoFVGFim : array[0..IntegracaoFVGUltimo] of Integer;
+  integracaoFVGLo, integracaoFVGHi : array[0..IntegracaoFVGUltimo] of Float;
+  bbZonaPerna13, bbZonaScore13, bbZonaFib13, unicornFVGBarra, unicornFVGSlot,
+    unicornConfirmacao, unicornFim, unicornInicioData, unicornInicioHora,
+    unicornBBSlot, unicornBBID,
+    unicornFimData, unicornFimHora : array[0..BBUltimo] of Integer;
+  unicornZonaLo, unicornZonaHi : array[0..BBUltimo] of Float;
+  unicornRanking : array[1..20] of Integer;
+  unicornBuscaEncerrada, unicornInstantaneo : array[0..BBUltimo] of Boolean;
+  bbRevAguardaFVG13 : array[0..BBRevUltimo] of Boolean;
+  bbRevPerna13, bbZonaEvidenciaFVG, bbZonaEvidenciaIDM, bbZonaEvidenciaFlip,
+    bbZonaEvidenciaVolume : array[0..BBRevUltimo] of Integer;
+  flipScore13 : array[0..FlipUltimoIndice] of Integer;
+  idmScore13 : array[0..IDMUltimoIndice] of Integer;
 
 begin
   // Gravar data e hora em series antes de consultar candles anteriores.
@@ -734,6 +778,21 @@ begin
     and (MaxCandlesDispBB >= 1) and (MaxCandlesDispBB <= 3) and (MaxIdadeOBBB >= 0)
     and (TipoZonaOBBB >= 0) and (TipoZonaOBBB <= 3) and (MaxBaseCandlesBB >= 1)
     and (BaseRangeBBATR >= 0) and (MaxLarguraBBATR >= 0);
+  integracaoValida := (MinOverlapTicks >= 1) and (MaxBarrasFiltroFVG_BB >= 0)
+    and (MaxDistBarrasFlipBB >= 0) and (FibPreferencialBB >= 50)
+    and (FibPreferencialBB <= FibExtremoBB) and (FibExtremoBB <= 100)
+    and (FiltroFVG_BB >= 0) and (FiltroFVG_BB <= 2)
+    and (FiltroIDM_BB >= 0) and (FiltroIDM_BB <= 2)
+    and (FiltroFlip_BB >= 0) and (FiltroFlip_BB <= 2)
+    and (FiltroVolumeBB >= 0) and (FiltroVolumeBB <= 2)
+    and (FiltroFibBB >= 0) and (FiltroFibBB <= 2);
+  integracaoConfigInvalida := 0;
+  if not integracaoValida then
+    integracaoConfigInvalida := 1;
+  bbUsaFiltros13 := bbCalcula and ((FiltroFVG_BB <> 0) or (FiltroIDM_BB <> 0)
+    or (FiltroFlip_BB <> 0) or (FiltroVolumeBB <> 0) or (FiltroFibBB <> 0));
+  integracaoIDM := bbUsaFiltros13 and integracaoValida and (FiltroIDM_BB > 0);
+  integracaoFlip := bbUsaFiltros13 and integracaoValida and (FiltroFlip_BB > 0);
   bbUsaLux := bbCalcula and (FonteOBBB = 1);
   bbRevCalcula := bbCalcula and (TipoQuebraBB >= 0) and (TipoQuebraBB <= 1)
     and (MinReacaoBBATR >= 0) and (BufferFalhaOBTicks >= 0) and (BufferEstruturaBBTicks >= 0)
@@ -747,6 +806,8 @@ begin
     and ((EncerrarAposMitigacaoBB = 0) or (EncerrarAposMitigacaoBB = 50) or (EncerrarAposMitigacaoBB = 100))
     and (MaxIdadeBB >= 0) and (MaxVisitasBB >= 0) and (ModoRetesteBB >= 0) and (ModoRetesteBB <= 2)
     and (ReacaoRetesteBBATR >= 0) and (MaxBarrasRetesteBB >= 0);
+  unicornCalcula := bbVidaCalcula and integracaoValida and (MostrarUnicorn or AlertasSMC);
+  bbUsaFVG13 := unicornCalcula or (bbUsaFiltros13 and integracaoValida and (FiltroFVG_BB > 0));
   calculaPD := ((ModoFaixaOB = 0) and MostrarZonasPD) or DebugSMC;
   calculaOBInterno := calculaBlocosInternos or DebugSMC or (bbUsaLux and (EscalaBB <> 1));
   calculaOBSwing := calculaBlocosSwing or DebugSMC or (bbUsaLux and (EscalaBB <> 0));
@@ -761,13 +822,13 @@ begin
     and (FiltroFVGIDM >= 0) and (FiltroFVGIDM <= 2) and (FiltroDispIDM >= 0) and (FiltroDispIDM <= 2)
     and (FiltroVolumeIDM >= 0) and (FiltroVolumeIDM <= 2)
     and ((PoliticaNovoBOS = 0) or (PoliticaNovoBOS = 1));
-  idmCalcula := HabilitarIDM and idmConfigValida;
+  idmCalcula := (HabilitarIDM or integracaoIDM) and idmConfigValida;
   idmEstrutural := idmCalcula and ((ModoIDM = 0) or (ModoIDM = 3));
   idmLocal := idmCalcula and ((ModoIDM = 1) or (ModoIDM = 3));
   idmPosBOS := idmCalcula and ((ModoIDM = 2) or (ModoIDM = 3));
   idmUsaConfluencia := idmCalcula and ((FiltroPOIIDM > 0) or (FiltroFibIDM > 0) or (FiltroFVGIDM > 0)
     or (FiltroDispIDM > 0) or (FiltroVolumeIDM > 0));
-  flipCalcula := flipConfigValida and (HabilitarFlip or idmLocal
+  flipCalcula := flipConfigValida and (HabilitarFlip or integracaoFlip or idmLocal
     or (idmUsaConfluencia and ((FiltroPOIIDM > 0) or (FiltroFibIDM > 0))));
   flipAvancadoValido := (ModoFalhaFlip >= 0) and (ModoFalhaFlip <= 2)
     and (FiltroDispFlip >= 0) and (FiltroDispFlip <= 2) and (FiltroFVGFlip >= 0) and (FiltroFVGFlip <= 2)
@@ -803,7 +864,7 @@ begin
     and (MinPavioGrab >= 0) and (MinPavioGrab <= 1) and (MaxBarrasStopHunt >= 2)
     and (ModoConfirmacaoLQ >= 0) and (ModoConfirmacaoLQ <= 2) and (ReacaoPosCapturaATR >= 0)
     and (MaxBarrasConfirmacaoLQ >= 1);
-  lqPublico := lqConfigValida and (HabilitarCapturasLiquidez or lqInternoNecessario);
+  lqPublico := lqConfigValida and (HabilitarCapturasLiquidez or lqInternoNecessario or integracaoIDM);
   lqPrivadoBB := lqConfigValida and bbPrecisaLQ and ((not lqPublico) or (not FonteSwingInterno) or (not FonteSwingExterno));
   lqCalcula := lqPublico or lqPrivadoBB;
   lqUltimoLado := 2;
@@ -1969,7 +2030,8 @@ begin
     end;
   end;
 
-  if calculaFVG or calculaBreaker or flipDetectaFVG or (idmUsaConfluencia and (FiltroFVGIDM > 0)) then
+  if calculaFVG or calculaBreaker or flipDetectaFVG or bbUsaFVG13
+    or (idmUsaConfluencia and (FiltroFVGIDM > 0)) then
   begin
     ladoNovoFVG := 0;
     retornoFVG := 0;
@@ -2325,6 +2387,27 @@ begin
     smcCarimbos[smcQuadro] := CurrentBar + 1;
   end;
 
+  if CurrentBar = 0 then
+  begin
+    alertaPrimeiraBarra := -1;
+    integracaoSemVaga := 0;
+    integracaoVolumeAlta := -1;
+    integracaoVolumeBaixa := -1;
+    if bbUsaFVG13 then
+      for integracaoSlot := 0 to IntegracaoFVGUltimo do
+        integracaoFVGBarra[integracaoSlot] := -1;
+    if unicornCalcula then
+      for integracaoSlot := 0 to BBUltimo do
+        unicornConfirmacao[integracaoSlot] := -1;
+  end;
+  integracaoAlertar := False;
+  if AlertasSMC and LastBarOnChart then
+  begin
+    if alertaPrimeiraBarra < 0 then
+      alertaPrimeiraBarra := CurrentBar;
+    integracaoAlertar := CurrentBar > alertaPrimeiraBarra;
+  end;
+
   // t+1 fecha o lote de t. LastBarOnChart tambem vale durante a formacao.
   if smcCalcula and (CurrentBar > 0) and (CurrentBar - 1 > smcUltimaPublicacao) then
   begin
@@ -2343,6 +2426,65 @@ begin
       smcTick := MinPriceIncrement;
       smcBarraValida := smcConfigValida and (smcTick > 0) and (High[1] >= Low[1])
         and (High[1] >= Max(Open[1], Close[1])) and (Low[1] <= Min(Open[1], Close[1]));
+      // Reutilizar a deteccao legada, lendo somente a formacao ja fechada.
+      if bbUsaFVG13 and smcBarraValida then
+      begin
+        for integracaoSlot := 0 to IntegracaoFVGUltimo do
+          if (integracaoFVGBarra[integracaoSlot] >= 0) and (integracaoFVGFim[integracaoSlot] < 0) then
+            if ((integracaoSlot < CapacidadeFVG) and (Low[1] < integracaoFVGLo[integracaoSlot]))
+              or ((integracaoSlot >= CapacidadeFVG) and (High[1] > integracaoFVGHi[integracaoSlot])) then
+              integracaoFVGFim[integracaoSlot] := smcBarra;
+        if (CurrentBar >= 3) and (ladoNovoFVG[1] <> 0) then
+        begin
+          integracaoBase := 0;
+          if ladoNovoFVG[1] < 0 then
+            integracaoBase := CapacidadeFVG;
+          integracaoVaga := -1;
+          for integracaoSlot := integracaoBase to integracaoBase + CapacidadeFVG - 1 do
+            if integracaoFVGBarra[integracaoSlot] < 0 then
+              integracaoVaga := integracaoSlot
+            else if integracaoFVGFim[integracaoSlot] >= 0 then
+            begin
+              if integracaoVaga < 0 then
+                integracaoVaga := integracaoSlot
+              else if (integracaoFVGBarra[integracaoVaga] >= 0)
+                and (integracaoFVGBarra[integracaoSlot] < integracaoFVGBarra[integracaoVaga]) then
+                integracaoVaga := integracaoSlot;
+            end;
+          if integracaoVaga < 0 then
+            integracaoSemVaga := integracaoSemVaga + 1
+          else
+          begin
+            integracaoFVGBarra[integracaoVaga] := smcBarra;
+            integracaoFVGFim[integracaoVaga] := -1;
+            if integracaoBase = 0 then
+            begin
+              integracaoFVGLo[integracaoVaga] := High[3];
+              integracaoFVGHi[integracaoVaga] := Low[1];
+            end
+            else
+            begin
+              integracaoFVGLo[integracaoVaga] := High[1];
+              integracaoFVGHi[integracaoVaga] := Low[3];
+            end;
+          end;
+        end;
+      end;
+
+      if bbUsaFiltros13 and integracaoValida and (FiltroVolumeBB > 0)
+        and smcBarraValida and (smcBarra >= 20) and (Volume[1] > 0) then
+      begin
+        integracaoVolume := 0;
+        for integracaoLag := 2 to 21 do
+          integracaoVolume := integracaoVolume + Volume[integracaoLag];
+        if (integracaoVolume > 0) and (Volume[1] * 20 >= 1.5 * integracaoVolume) then
+        begin
+          if Close[1] > Open[1] then
+            integracaoVolumeAlta := smcBarra
+          else if Close[1] < Open[1] then
+            integracaoVolumeBaixa := smcBarra;
+        end;
+      end;
       idmATRAnterior := smcATR;
       idmATRAnteriorValido := smcATRDisponivel;
       idmQuebraBOS := -1;
@@ -2479,6 +2621,14 @@ begin
               if lqResultado <> LQAguardaRecuperacao then
               begin
                 lqDesfecho[lqNivel] := lqResultado;
+                if integracaoAlertar and HabilitarCapturasLiquidez and (lqLado <= 2)
+                  and ((lqResultado = LQSweep) or (lqResultado = LQStopHunt)) then
+                begin
+                  if lqLado = 2 then
+                    Alert(clGreen)
+                  else
+                    Alert(clRed);
+                end;
                 lqBarraDesfecho[lqNivel] := smcBarra;
                 lqDiaDesfecho[lqNivel] := smcDataConfirmada;
                 lqHoraDesfecho[lqNivel] := smcHoraConfirmada;
@@ -2549,6 +2699,14 @@ begin
               if lqResultado <> LQAtivo then
               begin
                 lqEstado[lqNivel] := lqResultado;
+                if integracaoAlertar and HabilitarCapturasLiquidez and (lqLado <= 2)
+                  and (lqResultado = LQGrab) then
+                begin
+                  if lqLado = 2 then
+                    Alert(clGreen)
+                  else
+                    Alert(clRed);
+                end;
                 lqFim[lqNivel] := smcBarra;
                 lqDiaFim[lqNivel] := smcDataConfirmada;
                 lqHoraFim[lqNivel] := smcHoraConfirmada;
@@ -4038,6 +4196,20 @@ begin
                 if flipQualVolOk then
                   flipQualNota := flipQualNota + 1;
                 flipEventoNota[flipQualSlot] := flipQualNota;
+                flipScore13[flipQualSlot] := 20 * flipQualNota;
+                if (FiltroSweepFlip > 0) and (flipEventoLQRef[flipQualSlot] <> 0) then
+                  flipScore13[flipQualSlot] := flipScore13[flipQualSlot] + 20;
+                if (FiltroIDMFlip > 0) and (flipEventoIDMRef[flipQualSlot] <> 0)
+                  and (((FiltroSweepFlip = 0) or (flipEventoIDMRef[flipQualSlot] <> flipEventoLQRef[flipQualSlot]))
+                    and (flipEventoIDMRef[flipQualSlot] <> flipEventoLQExtremoRef[flipQualSlot])) then
+                  flipScore13[flipQualSlot] := flipScore13[flipQualSlot] + 20;
+                if integracaoAlertar and HabilitarFlip then
+                begin
+                  if flipQualDir > 0 then
+                    Alert(clGreen)
+                  else
+                    Alert(clRed);
+                end;
                 flipEventoQualEstado[flipQualSlot] := FlipQualConfirmada;
                 flipEventoQualBarra[flipQualSlot] := smcBarra;
                 flipEventoQualPublicacao[flipQualSlot] := CurrentBar;
@@ -5007,6 +5179,21 @@ begin
                     idmFlipRef[idmDestino] := -1;
                     idmFlipOrigemFaixa[idmDestino] := idmFlipPaiFaixa;
                     idmEvidencias[idmDestino] := idmNota;
+                    idmScore13[idmDestino] := 0;
+                    integracaoBarra := idmNota;
+                    while integracaoBarra > 0 do
+                    begin
+                      integracaoLado := Mod(integracaoBarra, 2);
+                      idmScore13[idmDestino] := idmScore13[idmDestino] + 20 * integracaoLado;
+                      integracaoBarra := Round((integracaoBarra - integracaoLado) / 2);
+                    end;
+                    if integracaoAlertar and HabilitarIDM then
+                    begin
+                      if idmDirecao > 0 then
+                        Alert(clGreen)
+                      else
+                        Alert(clRed);
+                    end;
                     idmIDVinculo := idmUltimoId;
                     idmMotivo[idmParticao] := IDMAtivo;
                     if idmModelo = 1 then
@@ -5294,7 +5481,8 @@ begin
                   begin
                     bbFim := bbBase + BBCapacidade - 1;
                     for bbSlot := bbBase to bbFim do
-                      if (bbEstado[bbSlot] = BBEncerrado) and ((not bbUsaLux) or (bbRemocao[bbSlot] >= 0)) then
+                      if (bbEstado[bbSlot] = BBEncerrado) and ((not bbUsaLux) or (bbRemocao[bbSlot] >= 0))
+                        and (not bbRevAguardaFVG13[bbSlot]) and (not bbRevAguardaFVG13[bbSlot + BBTotal]) then
                       begin
                         if bbDestino < 0 then
                           bbDestino := bbSlot
@@ -5783,6 +5971,7 @@ begin
                     bbRevDispInicio[bbRevSlot] := -1;
                     bbRevDispFim[bbRevSlot] := -1;
                     bbRevCruzouMeio[bbRevSlot] := False;
+                    bbRevAguardaFVG13[bbRevSlot] := False;
                   end;
               end;
 
@@ -5826,7 +6015,7 @@ begin
                   bbNovoEstado := BBRevEspera;
                   if not smcBarraValida then
                     bbNovoEstado := BBRevDadosInvalidos
-                  else if (bbEstado[bbSlot] <> BBQualificado) then
+                  else if (bbEstado[bbSlot] <> BBQualificado) and not bbRevAguardaFVG13[bbRevSlot] then
                     bbNovoEstado := BBRevPrazo
                   else if bbFluxoMotivo[bbEscala] = SMCRetornoExtremo then
                     bbNovoEstado := BBRevContexto
@@ -5935,7 +6124,8 @@ begin
                     if bbRequerCaptura and (bbRevTomada[bbRevSlot] < 0) and (MaxBarrasOBParaCaptura > 0)
                       and (smcBarra - bbConfirmacao[bbSlot] > MaxBarrasOBParaCaptura) then
                       bbNovoEstado := BBRevPrazo;
-                    if (bbAncora >= 0) and (MaxBarrasCapturaQuebra > 0) and (smcBarra - bbAncora > MaxBarrasCapturaQuebra) then
+                    if (bbAncora >= 0) and (MaxBarrasCapturaQuebra > 0) and (smcBarra - bbAncora > MaxBarrasCapturaQuebra)
+                      and not bbRevAguardaFVG13[bbRevSlot] then
                       bbNovoEstado := BBRevPrazo;
 
                     if (bbNovoEstado = BBRevEspera) and (smcBarra > bbConfirmacao[bbSlot]) then
@@ -5992,10 +6182,179 @@ begin
                         else if (bbDistFalha >= bbLimiteFalha) and (bbDistMeio >= bbLimiteEstrutura) then
                           bbNovoEstado := BBRevAtivo;
                       end;
+
+                      // O nucleo do Breaker permanece independente dos filtros opcionais.
+                      bbScore13 := 0;
+                      bbFibFaixa13 := 0;
+                      bbEvidenciaFVG13 := -1;
+                      bbEvidenciaIDM13 := 0;
+                      bbEvidenciaFlip13 := -1;
+                      bbEvidenciaVolume13 := -1;
+                      bbPerna13 := bbConfirmacao[bbSlot] + 1;
+                      if bbRevAguardaFVG13[bbRevSlot] then
+                        bbPerna13 := bbRevPerna13[bbRevSlot]
+                      else if bbRevTomada[bbRevSlot] >= 0 then
+                        bbPerna13 := bbRevTomada[bbRevSlot];
+                      if bbUsaFiltros13 and (bbNovoEstado = BBRevAtivo) then
+                      begin
+                        if not integracaoValida then
+                          bbNovoEstado := BBRevFiltroAusente
+                        else
+                        begin
+                          bbFVGOk13 := False;
+                          bbIDMOk13 := False;
+                          bbIDMDistinto13 := False;
+                          bbFlipOk13 := False;
+                          bbVolumeOk13 := False;
+                          bbFibOk13 := False;
+
+                          if FiltroFVG_BB > 0 then
+                          begin
+                            integracaoBase := 0;
+                            if bbRevDir < 0 then
+                              integracaoBase := CapacidadeFVG;
+                            for integracaoSlot := integracaoBase to integracaoBase + CapacidadeFVG - 1 do
+                              if (integracaoFVGBarra[integracaoSlot] - 1 >= bbPerna13)
+                                and (integracaoFVGFim[integracaoSlot] < 0)
+                                and ((MaxBarrasFiltroFVG_BB = 0)
+                                  or (integracaoFVGBarra[integracaoSlot] - bbFimQuebras <= MaxBarrasFiltroFVG_BB)) then
+                              begin
+                                if (not bbFVGOk13) or (integracaoFVGBarra[integracaoSlot] < bbEvidenciaFVG13) then
+                                  bbEvidenciaFVG13 := integracaoFVGBarra[integracaoSlot];
+                                bbFVGOk13 := True;
+                              end;
+                          end;
+
+                          if integracaoIDM and lqPublico then
+                          begin
+                            integracaoBase := (bbRevLadoLQ - 1) * LQCapacidadeNiveis;
+                            for integracaoSlot := integracaoBase to integracaoBase + lqTotalNiveis[bbRevLadoLQ] - 1 do
+                            begin
+                              integracaoBarra := -1;
+                              if lqEstado[integracaoSlot] = LQGrab then
+                                integracaoBarra := lqFim[integracaoSlot]
+                              else if (lqDesfecho[integracaoSlot] = LQSweep)
+                                or (lqDesfecho[integracaoSlot] = LQStopHunt) then
+                                integracaoBarra := lqBarraDesfecho[integracaoSlot];
+                              if (lqFim[integracaoSlot] >= bbPerna13) and (integracaoBarra >= 0)
+                                and (integracaoBarra <= smcBarra) then
+                              begin
+                                lqFonte := lqPrimeiraFonte[integracaoSlot];
+                                while lqFonte >= 0 do
+                                begin
+                                  if lqFonteTomada[lqFonte] and (lqFonteTipo[lqFonte] = LQInducement) then
+                                  begin
+                                    bbIDMOk13 := True;
+                                    if not bbIDMDistinto13 then
+                                      bbEvidenciaIDM13 := lqID[integracaoSlot];
+                                    if lqID[integracaoSlot] <> bbRevCaptura[bbRevSlot] then
+                                      bbIDMDistinto13 := True;
+                                  end;
+                                  lqFonte := lqFonteProxima[lqFonte];
+                                end;
+                              end;
+                            end;
+                          end;
+
+                          if integracaoFlip and flipCalcula then
+                          begin
+                            integracaoLado := bbRevLado - bbRevDir;
+                            integracaoBase := (integracaoLado - 1) * FlipCapacidade;
+                            for integracaoSlot := integracaoBase to integracaoBase + flipUsados[integracaoLado] - 1 do
+                              if (flipEventoQualEstado[integracaoSlot] = FlipQualConfirmada)
+                                and (flipEventoFalha[integracaoSlot] < 0)
+                                and (flipEventoConfirmacao[integracaoSlot] >= bbPerna13)
+                                and ((MaxDistBarrasFlipBB = 0)
+                                  or (Abs(flipEventoQualBarra[integracaoSlot] - bbFimQuebras) <= MaxDistBarrasFlipBB)) then
+                              begin
+                                bbFlipOk13 := True;
+                                bbEvidenciaFlip13 := Max(bbEvidenciaFlip13, flipEventoConfirmacao[integracaoSlot]);
+                              end;
+                          end;
+
+                          if FiltroVolumeBB > 0 then
+                          begin
+                            bbEvidenciaVolume13 := integracaoVolumeBaixa;
+                            if bbRevDir > 0 then
+                              bbEvidenciaVolume13 := integracaoVolumeAlta;
+                            bbVolumeOk13 := bbEvidenciaVolume13 >= bbPerna13;
+                            if not bbVolumeOk13 then
+                              bbEvidenciaVolume13 := -1;
+                          end;
+
+                          if (FiltroFibBB > 0) and (bbPerna13 <= bbFimQuebras)
+                            and (smcBarrasValidas >= CurrentBar - bbPerna13) then
+                          begin
+                            integracaoLag := CurrentBar - bbFimQuebras;
+                            bbFibMin13 := Low[integracaoLag];
+                            bbFibMax13 := High[integracaoLag];
+                            for integracaoLag := CurrentBar - bbFimQuebras + 1 to CurrentBar - bbPerna13 do
+                            begin
+                              bbFibMin13 := Min(bbFibMin13, Low[integracaoLag]);
+                              bbFibMax13 := Max(bbFibMax13, High[integracaoLag]);
+                            end;
+                            if bbFibMax13 > bbFibMin13 then
+                            begin
+                              bbFibRetracao13 := (bbLo[bbSlot] + bbHi[bbSlot]) / 2;
+                              if bbRevDir > 0 then
+                                bbFibRetracao13 := bbFibMax13 - bbFibRetracao13
+                              else
+                                bbFibRetracao13 := bbFibRetracao13 - bbFibMin13;
+                              bbFibRetracao13 := 100 * bbFibRetracao13 / (bbFibMax13 - bbFibMin13);
+                              bbFibOk13 := (bbFibRetracao13 >= FibPreferencialBB) and (bbFibRetracao13 <= 100);
+                              if bbFibOk13 then
+                              begin
+                                bbFibFaixa13 := 1;
+                                if bbFibRetracao13 >= FibExtremoBB then
+                                  bbFibFaixa13 := 2;
+                              end;
+                            end;
+                          end;
+
+                          if ((FiltroIDM_BB = 2) and (not bbIDMOk13))
+                            or ((FiltroFlip_BB = 2) and (not bbFlipOk13))
+                            or ((FiltroVolumeBB = 2) and (not bbVolumeOk13))
+                            or ((FiltroFibBB = 2) and (not bbFibOk13)) then
+                            bbNovoEstado := BBRevFiltroAusente
+                          else if (FiltroFVG_BB = 2) and (not bbFVGOk13) then
+                          begin
+                            bbNovoEstado := BBRevEspera;
+                            bbRevAguardaFVG13[bbRevSlot] := True;
+                            bbRevPerna13[bbRevSlot] := bbPerna13;
+                            if (MaxBarrasFiltroFVG_BB > 0)
+                              and (smcBarra - bbFimQuebras >= MaxBarrasFiltroFVG_BB) then
+                              bbNovoEstado := BBRevPrazoFVG;
+                          end;
+                          if bbFVGOk13 then
+                            bbScore13 := bbScore13 + 20;
+                          if bbIDMDistinto13 then
+                            bbScore13 := bbScore13 + 20;
+                          if bbFlipOk13 then
+                            bbScore13 := bbScore13 + 20;
+                          if bbVolumeOk13 then
+                            bbScore13 := bbScore13 + 20;
+                          if bbFibOk13 then
+                            bbScore13 := bbScore13 + 20;
+                        end;
+                      end;
+                      if bbRevAguardaFVG13[bbRevSlot] and (bbNovoEstado = BBRevEspera)
+                        and ((bbDistFalha < bbLimiteFalha) or (bbDistMeio < bbLimiteEstrutura)) then
+                        bbNovoEstado := BBRevContexto;
                     end;
                   end;
 
+                  if DebugSMC and (ModoFaixaOB = 0) then
+                  begin
+                    if bbNovoEstado = BBRevFiltroAusente then
+                      PlotText("BB: filtro ausente", clGray, 3, 8, bbLo[bbSlot])
+                    else if bbNovoEstado = BBRevPrazoFVG then
+                      PlotText("BB: prazo FVG", clGray, 3, 8, bbLo[bbSlot])
+                    else if bbRevAguardaFVG13[bbRevSlot] and (bbNovoEstado = BBRevContexto) then
+                      PlotText("BB: contexto perdido na espera do FVG", clGray, 3, 8, bbLo[bbSlot]);
+                  end;
                   bbRevEstado[bbRevSlot] := bbNovoEstado;
+                  if bbNovoEstado <> BBRevEspera then
+                    bbRevAguardaFVG13[bbRevSlot] := False;
                   if bbNovoEstado = BBRevAtivo then
                   begin
                     if bbZonaVinculo[bbSlot] < 0 then
@@ -6013,6 +6372,18 @@ begin
                       bbZonaHi[bbZona] := bbHi[bbSlot];
                       bbZonaFonte[bbZona] := bbFonte[bbSlot];
                       bbZonaAtivacao[bbZona] := smcBarra;
+                      bbZonaPerna13[bbZona] := bbPerna13;
+                      bbZonaScore13[bbZona] := bbScore13;
+                      bbZonaFib13[bbZona] := bbFibFaixa13;
+                      if unicornCalcula then
+                        unicornBuscaEncerrada[bbZona] := False;
+                      if integracaoAlertar then
+                      begin
+                        if bbRevDir > 0 then
+                          Alert(clGreen)
+                        else
+                          Alert(clRed);
+                      end;
                       bbZonaPublicacao[bbZona] := CurrentBar;
                       bbZonaData[bbZona] := smcDataConfirmada;
                       bbZonaHora[bbZona] := smcHoraConfirmada;
@@ -6044,6 +6415,10 @@ begin
                     begin
                       bbZonaFatos := bbZona + bbModelo * BBTotal;
                       bbZonaConfirmou[bbZonaFatos] := smcBarra;
+                      bbZonaEvidenciaFVG[bbZonaFatos] := bbEvidenciaFVG13;
+                      bbZonaEvidenciaIDM[bbZonaFatos] := bbEvidenciaIDM13;
+                      bbZonaEvidenciaFlip[bbZonaFatos] := bbEvidenciaFlip13;
+                      bbZonaEvidenciaVolume[bbZonaFatos] := bbEvidenciaVolume13;
                       bbZonaFalha[bbZonaFatos] := bbRevFalha[bbRevSlot];
                       bbZonaQuebra[bbZonaFatos] := bbRevQuebra[bbRevSlot];
                       bbZonaTomada[bbZonaFatos] := bbRevTomada[bbRevSlot];
@@ -6380,10 +6755,415 @@ begin
           end;
         end;
       end;
+      if unicornCalcula and smcBarraValida then
+      begin
+        // Conferir a identidade dos pais, inclusive apos reciclagem.
+        for unicornFVG := 0 to BBUltimo do
+          if (unicornConfirmacao[unicornFVG] >= 0) and (unicornFim[unicornFVG] < 0) then
+          begin
+            bbZona := unicornBBSlot[unicornFVG];
+            integracaoSlot := unicornFVGSlot[unicornFVG];
+            if (bbZonaOB[bbZona] <> unicornBBID[unicornFVG]) or (bbZonaFim[bbZona] >= 0)
+              or (integracaoFVGBarra[integracaoSlot] <> unicornFVGBarra[unicornFVG])
+              or (integracaoFVGFim[integracaoSlot] >= 0) then
+            begin
+              unicornFim[unicornFVG] := smcBarra;
+              unicornFimData[unicornFVG] := smcDataConfirmada;
+              unicornFimHora[unicornFVG] := smcHoraConfirmada;
+            end;
+          end;
+
+        for bbRevLado := 1 to 4 do
+        begin
+          bbBase := (bbRevLado - 1) * BBCapacidade;
+          integracaoBase := CapacidadeFVG;
+          if Mod(bbRevLado, 2) = 0 then
+            integracaoBase := 0;
+          for bbZona := bbBase to bbBase + bbZonaUsados[bbRevLado] - 1 do
+            if (bbZonaFim[bbZona] < 0) and (not unicornBuscaEncerrada[bbZona]) then
+            begin
+              if smcBarra > bbZonaAtivacao[bbZona] then
+                unicornBuscaEncerrada[bbZona] := (smcBreakNaBarra[bbRevLado] >= 0)
+                  or ((MaxBarrasFiltroFVG_BB > 0) and (smcBarra - bbZonaAtivacao[bbZona] > MaxBarrasFiltroFVG_BB));
+              if not unicornBuscaEncerrada[bbZona] then
+              begin
+                unicornEscolhido := -1;
+                for integracaoSlot := integracaoBase to integracaoBase + CapacidadeFVG - 1 do
+                  if (integracaoFVGBarra[integracaoSlot] - 1 >= bbZonaPerna13[bbZona])
+                    and ((smcBarra = bbZonaAtivacao[bbZona]) or (integracaoFVGBarra[integracaoSlot] = smcBarra))
+                    and ((not ExigirFVGDisponivelUnicorn) or (integracaoFVGFim[integracaoSlot] < 0)) then
+                  begin
+                    unicornLo := Max(bbZonaLo[bbZona], integracaoFVGLo[integracaoSlot]);
+                    unicornHi := Min(bbZonaHi[bbZona], integracaoFVGHi[integracaoSlot]);
+                    if Round(unicornHi / smcTick) - Round(unicornLo / smcTick) >= MinOverlapTicks then
+                    begin
+                      if unicornEscolhido < 0 then
+                        unicornEscolhido := integracaoSlot
+                      else if integracaoFVGBarra[integracaoSlot] < integracaoFVGBarra[unicornEscolhido] then
+                        unicornEscolhido := integracaoSlot;
+                    end;
+                  end;
+                if unicornEscolhido >= 0 then
+                begin
+                  unicornBuscaEncerrada[bbZona] := True;
+                  integracaoVaga := -1;
+                  for integracaoSlot := bbBase to bbBase + BBCapacidade - 1 do
+                    if unicornConfirmacao[integracaoSlot] < 0 then
+                      integracaoVaga := integracaoSlot
+                    else if unicornFim[integracaoSlot] >= 0 then
+                    begin
+                      if integracaoVaga < 0 then
+                        integracaoVaga := integracaoSlot
+                      else if (unicornConfirmacao[integracaoVaga] >= 0)
+                        and (unicornConfirmacao[integracaoSlot] < unicornConfirmacao[integracaoVaga]) then
+                        integracaoVaga := integracaoSlot;
+                    end;
+                  if integracaoVaga < 0 then
+                    integracaoSemVaga := integracaoSemVaga + 1
+                  else
+                  begin
+                    unicornZonaLo[integracaoVaga] := Max(bbZonaLo[bbZona], integracaoFVGLo[unicornEscolhido]);
+                    unicornZonaHi[integracaoVaga] := Min(bbZonaHi[bbZona], integracaoFVGHi[unicornEscolhido]);
+                    unicornConfirmacao[integracaoVaga] := smcBarra;
+                    unicornInicioData[integracaoVaga] := smcDataConfirmada;
+                    unicornInicioHora[integracaoVaga] := smcHoraConfirmada;
+                    unicornBBSlot[integracaoVaga] := bbZona;
+                    unicornBBID[integracaoVaga] := bbZonaOB[bbZona];
+                    unicornFVGSlot[integracaoVaga] := unicornEscolhido;
+                    unicornFVGBarra[integracaoVaga] := integracaoFVGBarra[unicornEscolhido];
+                    unicornFim[integracaoVaga] := -1;
+                    unicornInstantaneo[integracaoVaga] := integracaoFVGFim[unicornEscolhido] >= 0;
+                    if unicornInstantaneo[integracaoVaga] then
+                    begin
+                      unicornFim[integracaoVaga] := smcBarra;
+                      unicornFimData[integracaoVaga] := smcDataConfirmada;
+                      unicornFimHora[integracaoVaga] := smcHoraConfirmada;
+                    end;
+                    if integracaoAlertar then
+                    begin
+                      if integracaoBase = 0 then
+                        Alert(clGreen)
+                      else
+                        Alert(clRed);
+                    end;
+                  end;
+                end;
+              end;
+            end;
+        end;
+      end;
       smcTemAnterior := smcBarraValida;
     end;
   end;
 
+
+
+  if DebugSMC and (ModoFaixaOB = 0) and LastBarOnChart then
+  begin
+    if integracaoConfigInvalida > 0 then
+      PlotText("SMC: configuracao da entrega 13 invalida", clGray, 2, 8);
+    if integracaoSemVaga > 0 then
+      PlotText("SMC CAPACITY_FULL: " + FloatToString(integracaoSemVaga, 0), clGray, 0, 8);
+  end;
+
+  if MostrarUnicorn and unicornCalcula and (ModoFaixaOB = 0) and (CurrentBar > 0)
+    and (smcOrigemPublicada = CurrentBar - 1) then
+    for unicornFVG := 0 to BBUltimo do
+      if unicornInstantaneo[unicornFVG] and (unicornConfirmacao[unicornFVG] = CurrentBar - 1) then
+        PlotText("Unicorn (FVG encerrado)", clGray, 3, 8, (unicornZonaHi[unicornFVG] + unicornZonaLo[unicornFVG]) / 2);
+
+  if MostrarUnicorn and unicornCalcula and (ModoFaixaOB = 0) and LastBarOnChart
+    and (MaxBBVisiveis > 0) and (MaxBBVisiveis <= 20) then
+  begin
+    unicornOrdenados := 0;
+    for unicornFVG := 0 to BBUltimo do
+      if (unicornConfirmacao[unicornFVG] >= 0) and (not unicornInstantaneo[unicornFVG]) then
+      begin
+        unicornPosicao := 1;
+        unicornOrdena := True;
+        while unicornOrdena and (unicornPosicao <= unicornOrdenados) do
+        begin
+          unicornOutro := unicornRanking[unicornPosicao];
+          if (unicornConfirmacao[unicornFVG] > unicornConfirmacao[unicornOutro])
+            or ((unicornConfirmacao[unicornFVG] = unicornConfirmacao[unicornOutro])
+              and (unicornBBID[unicornFVG] > unicornBBID[unicornOutro])) then
+            unicornOrdena := False
+          else
+            unicornPosicao := unicornPosicao + 1;
+        end;
+        if unicornPosicao <= MaxBBVisiveis then
+        begin
+          unicornOrdenados := Min(unicornOrdenados + 1, MaxBBVisiveis);
+          unicornInsercao := unicornOrdenados;
+          while unicornInsercao > unicornPosicao do
+          begin
+            unicornRanking[unicornInsercao] := unicornRanking[unicornInsercao - 1];
+            unicornInsercao := unicornInsercao - 1;
+          end;
+          unicornRanking[unicornPosicao] := unicornFVG;
+        end;
+      end;
+    for unicornPosicao := 1 to unicornOrdenados do
+    begin
+      unicornFVG := unicornRanking[unicornPosicao];
+      unicornCentro := (unicornZonaHi[unicornFVG] + unicornZonaLo[unicornFVG]) / 2;
+      unicornAltura := (unicornZonaHi[unicornFVG] - unicornZonaLo[unicornFVG]) / 2;
+      unicornRotulo := "Unicorn -";
+      unicornCor := RGB(172, 70, 158);
+      if unicornFVGSlot[unicornFVG] < CapacidadeFVG then
+      begin
+        unicornRotulo := "Unicorn +";
+        unicornCor := RGB(15, 130, 146);
+      end;
+      bbVisualDataIni := unicornInicioData[unicornFVG];
+      bbVisualHoraIni := unicornInicioHora[unicornFVG];
+      unicornTermina := unicornFim[unicornFVG] >= 0;
+      unicornDataDireita := dataCandle;
+      unicornHoraDireita := horaCandle;
+      if unicornTermina then
+      begin
+        unicornDataDireita := unicornFimData[unicornFVG];
+        unicornHoraDireita := unicornFimHora[unicornFVG];
+      end;
+      bbVisualFimPrimeiro := bbVisualDataIni;
+      bbVisualHoraPrimeiro := 2359;
+      bbVisualIniMeio := CalcDate(bbVisualDataIni, 1);
+      bbVisualFimMeio := 0;
+      bbVisualMeioDias := unicornDataDireita > bbVisualDataIni;
+      if unicornTermina then
+      begin
+        if unicornDataDireita = bbVisualDataIni then
+          bbVisualHoraPrimeiro := unicornHoraDireita;
+        bbVisualFimMeio := CalcDate(unicornDataDireita, -1);
+        bbVisualMeioDias := bbVisualIniMeio <= bbVisualFimMeio;
+      end
+      else if bbVisualHoraIni = 0 then
+      begin
+        bbVisualFimPrimeiro := 0;
+        bbVisualMeioDias := False;
+      end;
+      if unicornPosicao = 1 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 2 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 3 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 4 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 5 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 6 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 7 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 8 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 9 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 10 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 11 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 12 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 13 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 14 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 15 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 16 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 17 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 18 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 19 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end
+      else if unicornPosicao = 20 then
+      begin
+        HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, unicornRotulo, 8, 1,
+          bbVisualDataIni, bbVisualFimPrimeiro, unicornAltura, bbVisualHoraIni, bbVisualHoraPrimeiro);
+        if bbVisualMeioDias then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            bbVisualIniMeio, bbVisualFimMeio, unicornAltura);
+        if unicornTermina and (unicornDataDireita > bbVisualDataIni) then
+          HorizontalLineCustom(unicornCentro, unicornCor, 1, 0, "", 8, 1,
+            unicornDataDireita, unicornDataDireita, unicornAltura, 0, unicornHoraDireita);
+      end;
+    end;
+  end;
 
   if bbCalcula and (DebugSMC or (MostrarCandidatosBB and MostrarBBEstrutural
     and ((ModoFaixaOB = 0) or ((ModoFaixaOB >= 9) and (ModoFaixaOB <= 12))))) and (CurrentBar > 0) then
@@ -6521,6 +7301,8 @@ begin
         bbRotulo := bbRotulo + " Strict"
       else
         bbRotulo := bbRotulo + " Flexible";
+      if MostrarScoreSMC then
+        bbRotulo := bbRotulo + " " + FloatToString(bbZonaScore13[bbZona], 0) + "/100";
       if not MostrarRotuloBB then
         bbRotulo := "";
 
@@ -7394,6 +8176,8 @@ begin
           idmRotulo := idmRotulo + " Substituido"
         else if idmEstado[idmSlot] = IDMCandidato then
           idmRotulo := idmRotulo + " Candidato";
+        if MostrarScoreSMC then
+          idmRotulo := idmRotulo + " " + FloatToString(idmScore13[idmSlot], 0) + "/100";
         if MostrarPrecoIDM then
           idmRotulo := idmRotulo + " " + FloatToString(idmPrecoDesenho, idmCasasPreco);
         idmHoraDireita := horaCandle;
@@ -8161,6 +8945,8 @@ begin
 
       if flipDesenha then
       begin
+        if MostrarScoreSMC and MostrarFlip and (flipDestino >= 0) then
+          flipLegenda := flipLegenda + " " + FloatToString(flipScore13[flipDestino], 0) + "/100";
         if flipLado = 1 then
           LineSegment(flipNivelDesenho, flipNivelDesenho, flipInicioDia, flipFimDia, False, flipLegenda,
             flipCor, 1, flipTraco, 8, 1, flipInicioHora, flipFimHora)

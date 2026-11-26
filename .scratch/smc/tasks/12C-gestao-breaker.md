@@ -1,6 +1,8 @@
 # 12C — Gestão e exibição dos Breaker Blocks
 
-Status: ready-for-human
+Status: aceite informado pelo usuário
+
+Em 25/11/2026, o usuário informou que os testes da 12C passaram e solicitou a entrega 13. O retorno se refere à revisão indicada abaixo. A versão do Profit, o ativo, o período e os resultados individuais da plataforma não foram informados.
 
 Depende do aceite da [12B](12B-breaker-estrutural.md). Cobre geometria, ciclo de vida e desenho do Breaker estrutural. [Especificação](../SPEC_evolucao.md#f-ciclo-de-vida-comum-das-zonas-09b12c)
 
@@ -13,7 +15,7 @@ Depende do aceite da [12B](12B-breaker-estrutural.md). Cobre geometria, ciclo de
 
 ## Configuração e validação no Profit Pro
 
-Compilação e Replay pendentes.
+Roteiro usado para o aceite. A compilação e o Replay individuais não foram detalhados no retorno.
 
 1. Compilar o fonte. Na instância principal, usar `ModoFaixaOB=0`, `ModoBB=3` e `MostrarBBEstrutural=True`. Manter `DebugSMC=False`. Conferir várias zonas com `MaxBBVisiveis` e comparar uma faixa isolada no slot 9, 10, 11 ou 12 com a zona correspondente do painel.
 2. Em Replay, comparar as quatro geometrias e conferir a barra de confirmação. A faixa selecionada determina a falha e permanece fixa após a publicação. Alternar rótulo, guia do meio, guia de origem, cor e marcadores de candidatos.
