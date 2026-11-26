@@ -125,3 +125,10 @@ Para uma faixa compradora de 119–127 ativada na barra 23, considere as seguint
 - Com `OcultarMitigadasBB=50`, a faixa some após o fechamento da barra 25 e o registro continua acompanhando as barras até a invalidação em 28. Com `EncerrarAposMitigacaoBB=50`, a faixa termina na barra 25.
 - Com `MostrarInvalidadasBB=1`, o trecho mantém a cor original até a barra 28. O valor 2 pinta o trecho encerrado em cinza e 0 o oculta. Espelhar o exemplo para uma faixa vendedora.
 - No reteste, se o primeiro toque tiver mínima 125 e o alvo interno de alta 136 já estiver confirmado, um candle posterior com máxima 138 e fechamento 137 pode qualificar a reação e a quebra, desde que cumpra o ATR exigido. Em modo 2, um alvo conhecido só no candle do toque fica indisponível para esse reteste. [Tarefa 12C](tasks/12C-gestao-breaker.md)
+
+## Integração 13
+
+- **M01.** Um Breaker comprador em 119–127 confirma na barra 23. Um FVG comprador da mesma perna em 112–132 confirma na barra 24. O Unicorn 119–127 aparece na barra de publicação 25, com âncora em 24. Uma mínima abaixo de 112 na barra 26 mitiga o FVG e encerra a faixa em 26. Espelhar os preços para a venda. Testar um tick de interseção, apenas toque e FVG já encerrado.
+- **M02.** Se a falha e a quebra confirmarem em 23, um FVG em 25 passa no filtro obrigatório com prazo 2. O Breaker ancora em 25 e é publicado em 26. Com prazo 1, ou se o preço voltar para dentro dos níveis antes da confirmação do FVG, a ativação é recusada.
+- **M03.** Um candle direcional com volume 15, precedido por 20 candles com volume médio 10, passa no filtro de volume. Com a banda Fibonacci satisfeita, a nota de 40/100 permanece a mesma quando o Unicorn se forma depois. Alertas de Breaker e Unicorn confirmados no mesmo candle geram duas chamadas no simulador, inclusive com reavaliação intrabar.
+- **M04–M05.** Preservar os 100 FVGs abertos por direção, registrar descarte por capacidade e reutilizar o terminal mais antigo. Uma captura IDM com o mesmo ID da captura principal pode satisfazer o filtro obrigatório e soma zero ponto. Uma captura distinta soma 20.

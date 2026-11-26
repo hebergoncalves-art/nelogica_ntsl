@@ -30,6 +30,7 @@ const acceptedRecoverySource = execFileSync('git', ['show', `${recoveryCommit}:$
 const acceptedAdvancedLiquiditySource = execFileSync('git', ['show', `6fad88b:${path}`], { cwd: root });
 const acceptedBreakerSource = execFileSync('git', ['show', `d8cf9f7:${path}`], { cwd: root });
 const acceptedStructuralBBSource = execFileSync('git', ['show', `b214fd3:${path}`], { cwd: root });
+const acceptedManagedBBSource = execFileSync('git', ['show', `86d7cf7:${path}`], { cwd: root });
 const candidate = readFileSync(join(root, path));
 const sha = (data) => createHash('sha256').update(data).digest('hex');
 
@@ -275,7 +276,7 @@ function runtime(program, bars, overrides = {}, tick = 1) {
         for (let lag = 1; lag < count; lag++) result = select(result, model.get(field, lag));
         return result;
       }
-      assert.match(name, /^(plot[234]?|plottext|noplot|setplotcolor|setplotwidth|horizontallinecustom|linesegment)$/);
+      assert.match(name, /^(plot[234]?|plottext|noplot|setplotcolor|setplotwidth|horizontallinecustom|linesegment|alert)$/);
       drawing.push([name, ...args]);
       return 0;
     },
@@ -301,7 +302,16 @@ const acceptedRecovery = compile(acceptedRecoverySource);
 const acceptedAdvancedLiquidity = compile(acceptedAdvancedLiquiditySource);
 const acceptedBreaker = compile(acceptedBreakerSource);
 const acceptedStructuralBB = compile(acceptedStructuralBBSource);
-const updated = compile(candidate);
+const acceptedManagedBB = compile(acceptedManagedBBSource);
+const integrated = compile(candidate);
+const integrationDefaults = {
+  mostrarunicorn: false, minoverlapticks: 1, exigirfvgdisponivelunicorn: true, maxbarrasfiltrofvg_bb: 2,
+  filtrofvg_bb: 0, filtroidm_bb: 0, filtroflip_bb: 0, filtrovolumebb: 0, filtrofibbb: 0,
+  fibpreferencialbb: 61.8, fibextremobb: 81.8, maxdistbarrasflipbb: 10,
+  mostrarscoresmc: false, alertassmc: false,
+};
+// As regressões executam a lógica atual com os defaults anteriores.
+const updated = { ...integrated, inputs: { ...acceptedManagedBB.inputs, ...integrationDefaults } };
 
 function dated(rows) {
   return rows.map(([open, high, low, close, volume = 0], index) => {
@@ -445,7 +455,7 @@ function breakerCandidateFixture({ side = 1, scale = 0, source = 0, mode = 1, de
 
 function structuralBreakerFixture({ side = 1, scale = 1, source = 0, mode = 3, pattern = 'LG',
   recoveryAtBreak = false, repeat = false, historical = false, replace = {}, config = {}, removal = -1,
-  tail = [], extraFacts = [] } = {}) {
+  tail = [], extraFacts = [], volume = () => 0, before = () => {} } = {}) {
   const rows = [
     [145, 146, 144, 145], [145, 150, 144, 147], [141, 143, 136, 138], [120, 122, 116, 118],
     [124, 129, 123, 127], [133, 140, 132, 136], [124, 130, 121, 126], [114, 116, 110, 112],
@@ -464,7 +474,9 @@ function structuralBreakerFixture({ side = 1, scale = 1, source = 0, mode = 3, p
   Object.entries(replace).forEach(([index, row]) => { rows[index] = row; });
   rows.push(...tail);
   const mirror = (price) => side === 1 ? price : 250 - price;
-  const bars = dated(side === 1 ? rows : rows.map(([o, h, l, c]) => [mirror(o), mirror(l), mirror(h), mirror(c)]));
+  const bars = dated(rows.map(([o, h, l, c], index) => side === 1
+    ? [o, h, l, c, volume(index)]
+    : [mirror(o), mirror(l), mirror(h), mirror(c), volume(index)]));
   const top = scale * 2 + (side === 1 ? 1 : 2);
   const bottom = scale * 2 + (side === 1 ? 2 : 1);
   const facts = {};
@@ -489,8 +501,9 @@ function structuralBreakerFixture({ side = 1, scale = 1, source = 0, mode = 3, p
   const trace = bars.map((_, index) => {
     if (index > 0) stageFacts(model, index - 1, facts[index - 1] ?? []);
     const last = !historical || index === bars.length - 1;
+    before(model, index);
     const drawing = model.step(index, last);
-    if (repeat) assert.deepEqual(model.step(index, last), drawing);
+    if (repeat) assert.deepEqual(model.step(index, last), drawing.filter(([name]) => name !== 'alert'));
     return drawing;
   });
   const draws = trace.map((drawing) => horizontal(drawing).filter(([, , , , , label]) => label.startsWith('BB')));
@@ -843,7 +856,14 @@ const cases = {
       ['bufferinvalidacaoticksbb', 1], ['mostrarinvalidadasbb', 1], ['ocultarmitigadasbb', 0],
       ['encerraraposmitigacaobb', 0], ['maxidadebb', 0], ['maxvisitasbb', 0], ['modoretestebb', 0],
       ['reacaoretestebbatr', 0.5], ['maxbarrasretestebb', 20],
+      ['mostrarunicorn', false], ['minoverlapticks', 1], ['exigirfvgdisponivelunicorn', true],
+      ['maxbarrasfiltrofvg_bb', 2], ['filtrofvg_bb', 0], ['filtroidm_bb', 0], ['filtroflip_bb', 0],
+      ['filtrovolumebb', 0], ['filtrofibbb', 0], ['fibpreferencialbb', 61.8], ['fibextremobb', 81.8],
+      ['maxdistbarrasflipbb', 10], ['mostrarscoresmc', false], ['alertassmc', false],
     ]);
+    assert.equal(sha(acceptedManagedBBSource), '5f4d48907bbf0ffba490d63e91889e5f66ba61669957083403d83ef278d7e817');
+    assert.deepEqual(Object.entries(updated.inputs).slice(0, Object.keys(acceptedManagedBB.inputs).length),
+      Object.entries(acceptedManagedBB.inputs));
     for (const [name, value] of Object.entries(original.constants)) assert.equal(updated.constants[name], value, name);
     return 'hash de referência, 26 inputs e constantes legadas conferidos. Compilação PENDENTE';
   },
@@ -3000,6 +3020,211 @@ const cases = {
     const candidates = structuralBreakerFixture({ config: { ModoFaixaOB: 0, MostrarCandidatosBB: true } });
     assert.ok(candidates.trace.some((drawing) => drawing.some(([name, text]) => name === 'plottext' && text.startsWith('OB BB'))));
     return 'painel e slots, ranking após filtros, guias, rótulos e paridade legada com a revisão aceita';
+  },
+  N01() {
+    const expectedDefaults = {
+      periodoswing: 10,
+      mostrarestruturainterna: true,
+      mostrarblocosswing: true,
+      quantidadeblocosswing: 3,
+      mostrareqheql: true,
+      mostrarfvg: true,
+      habilitarflip: true,
+      mostrarflip: true,
+      maxbarrasflip: 48,
+      mostrarfaixasflip: true,
+      maxflipvisiveis: 4,
+      mostrarinvalidadasflip: 0,
+      maxidadeflip: 36,
+      filtrodispflip: 1,
+      filtrofvgflip: 1,
+      filtrovolumeflip: 1,
+      habilitaridm: true,
+      mostraridm: true,
+      maxidmsvisiveis: 4,
+      habilitarcapturasliquidez: true,
+      mostrarcapturasliquidez: true,
+      bufferrecuperacaoticks: 1,
+      maxcapturaslqvisiveis: 8,
+      maxbarrasstophunt: 3,
+      fonteeqh_eql: true,
+      filtrosweepflip: 1,
+      modocapturaflip: 2,
+      modobb: 1,
+      mostrarbbestrutural: true,
+      maxbarrascapturaquebra: 18,
+      maxbbvisiveis: 5,
+      mostrarinvalidadasbb: 0,
+      maxidadebb: 36,
+      mostrarunicorn: true,
+      filtrofvg_bb: 1,
+      filtroidm_bb: 1,
+      filtroflip_bb: 1,
+      filtrovolumebb: 1,
+      filtrofibbb: 1,
+      mostrarscoresmc: true,
+    };
+    assert.deepEqual(Object.entries(integrated.inputs), Object.entries({ ...updated.inputs, ...expectedDefaults }));
+    for (const tick of [5, 0.5]) {
+      const bars = prices.map(([open, high, low, close, ...attributes]) =>
+        [open * tick, high * tick, low * tick, close * tick, ...attributes]);
+      const model = runtime(integrated, bars, {}, tick);
+      const trace = bars.map((_, bar) => model.step(bar, bar === bars.length - 1));
+      for (const flag of ['exibefvg', 'calculaobswing', 'flipcalcula', 'idmcalcula', 'lqcalcula', 'bbrevcalcula', 'unicorncalcula']) {
+        assert.equal(model.get(flag), true, flag);
+      }
+      assert.equal(model.get('periodo'), 10);
+      assert.equal(model.get('modobb'), 1);
+      assert.ok(trace.flat().some(([name]) => name === 'horizontallinecustom'));
+      assert.ok(trace.every((calls) => calls.every(([name]) => name !== 'alert')));
+    }
+    return 'defaults de WIN e WDO, camadas ativas e alertas desligados com ticks 5 e 0,5';
+  },
+  M04() {
+    const rise = Array.from({ length: 110 }, (_, i) => [100 + i * 5, 103 + i * 5, 99 + i * 5, 102 + i * 5]);
+    const rows = dated([...rise, [642, 648, 105, 640], [652, 656, 651, 655], [659, 665, 658, 664], [664, 667, 663, 666]]);
+    const common = { ModoBB: 2, PeriodoSwing: 500, FiltroAutomaticoFVG: false, MostrarFVG: false };
+    const model = runtime(updated, rows, { ...common, MostrarUnicorn: true });
+    for (let index = 0; index < 110; index++) model.step(index);
+    assert.equal(model.get('integracaosemvaga'), 7);
+    const starts = () => Array.from({ length: 100 }, (_, i) => model.element('integracaofvgbarra', i));
+    assert.equal(Math.min(...starts()), 2);
+    assert.equal(Math.max(...starts()), 101);
+    for (let index = 110; index < rows.length; index++) model.step(index);
+    assert.ok(starts().includes(112));
+
+    const sample = prices.slice(0, 1310);
+    const flags = { PeriodoSwing: 10, ModoBB: 3, MostrarBBEstrutural: true, MostrarFVG: true };
+    const measure = (program, config) => {
+      const runs = Array.from({ length: 3 }, () => {
+        const runtimeModel = runtime(program, sample, config);
+        const start = performance.now();
+        sample.forEach((_, bar) => runtimeModel.step(bar, bar === sample.length - 1));
+        return performance.now() - start;
+      });
+      return runs.sort((a, b) => a - b)[1].toFixed(1);
+    };
+    const timings = [measure(acceptedManagedBB, flags), measure(updated, flags),
+      measure(updated, { ...flags, MostrarUnicorn: true, MostrarScoreSMC: true, FiltroFVG_BB: 1, FiltroVolumeBB: 1 })];
+    return `100 FVGs ativos preservados e reciclagem apos mitigacao. Mediana local 12C/13 off/13 on ${timings.join('/')} ms`;
+  },
+  M01() {
+    const readUnicorn = (trace, index) => horizontal(trace[index]).filter(([, , , , , label]) => label.startsWith('Unicorn'));
+    for (const side of [1, -1]) {
+      const config = { ModoFaixaOB: 0, MostrarUnicorn: true, MostrarFVG: false };
+      const basic = structuralBreakerFixture({ side, repeat: true, config });
+      assert.equal(readUnicorn(basic.trace, 24).length, 0);
+      const [zone] = readUnicorn(basic.trace, 25);
+      const [breaker] = basic.draws[24];
+      assert.equal(zone[5], side > 0 ? 'Unicorn +' : 'Unicorn -');
+      assert.equal(zone[8], basic.bars[24][4]);
+      assert.equal(zone[11], basic.bars[24][5]);
+      assert.equal(basic.draws[25][0][11], breaker[11]);
+      assert.equal(readUnicorn(structuralBreakerFixture({ side, config: { ...config, MinOverlapTicks: 100 } }).trace, 25).length, 0);
+
+      const mitigated = structuralBreakerFixture({ side, config, tail: [[135, 137, 111, 130], [130, 135, 122, 132]] });
+      const [ended] = readUnicorn(mitigated.trace, 27);
+      assert.equal(ended[12], mitigated.bars[26][5]);
+      assert.deepEqual(readUnicorn(structuralBreakerFixture({
+        side, config, historical: true, tail: [[135, 137, 111, 130], [130, 135, 122, 132]],
+      }).trace, 27), [ended]);
+
+      const edge = { 21: [103, 120, 98, 102], 22: [103, 125, 102, 124], 23: [124, 135, 121, 134] };
+      const exact = structuralBreakerFixture({ side, mode: 2, replace: edge, config });
+      const [oneTick] = readUnicorn(exact.trace, 24);
+      assert.equal(oneTick[10], 0.5);
+      const touching = structuralBreakerFixture({ side, mode: 2,
+        replace: { ...edge, 23: [124, 135, 120, 134] }, config });
+      assert.equal(readUnicorn(touching.trace, 24).length, 0);
+
+      const closedGap = { 20: [115, 119, 101, 103], 21: [103, 126, 98, 125],
+        22: [121, 126, 121, 123], 23: [124, 135, 117, 134] };
+      const closedConfig = { ...config, FiltroAutomaticoFVG: false };
+      assert.equal(readUnicorn(structuralBreakerFixture({ side, mode: 2, replace: closedGap,
+        config: closedConfig }).trace, 24).length, 0);
+      const closed = structuralBreakerFixture({ side, mode: 2, replace: closedGap,
+        config: { ...closedConfig, ExigirFVGDisponivelUnicorn: false } });
+      assert.equal(readUnicorn(closed.trace, 24).length, 0);
+      assert.equal(closed.trace[24].filter(([name, label]) => name === 'plottext' && label === 'Unicorn (FVG encerrado)').length, 1);
+    }
+    return 'Unicorn nos dois sentidos, um tick, fechamento do FVG, virada de sessao e recarga';
+  },
+  M02() {
+    const options = { mode: 2, replace: { 22: [103, 134, 102, 109], 23: [110, 135, 105, 134],
+      24: [132, 139, 132, 138], 25: [138, 141, 137, 140] }, tail: [[140, 143, 139, 142]] };
+    const fixture = (config, replace = options.replace) => structuralBreakerFixture({
+      ...options, replace, config: { FiltroAutomaticoFVG: false, ...config },
+    });
+    const first = ({ draws }) => draws.findIndex((items) => items.length > 0);
+    assert.equal(first(fixture({})), 24);
+    assert.equal(first(fixture({ FiltroFVG_BB: 1 })), 24);
+    const timed = fixture({ FiltroFVG_BB: 2, MostrarScoreSMC: true });
+    assert.equal(first(timed), 26);
+    assert.equal(timed.draws[26][0][11], timed.bars[25][5]);
+    assert.match(timed.draws[26][0][5], /20\/100$/);
+    assert.equal(timed.model.element('bbzonaevidenciafvg', 700), 25);
+    assert.equal(first(fixture({ FiltroFVG_BB: 2, MaxBarrasFiltroFVG_BB: 1 })), -1);
+    assert.equal(first(fixture({ FiltroFVG_BB: 2, MaxBarrasFiltroFVG_BB: 0 })), 26);
+    assert.equal(first(fixture({ FiltroFVG_BB: 2, MaxBarrasCapturaQuebra: 3 })), 26);
+    assert.equal(first(fixture({ FiltroFVG_BB: 2 }, { ...options.replace, 24: [130, 138, 121, 123] })), -1);
+    assert.equal(first(fixture({ FiltroIDM_BB: 2 })), -1);
+    const hiddenFlip = fixture({ FiltroFlip_BB: 2, MostrarScoreSMC: true });
+    assert.equal(first(hiddenFlip), 24);
+    assert.match(hiddenFlip.draws[24][0][5], /20\/100$/);
+    assert.equal(first(fixture({ FiltroFlip_BB: 2, EscalaFlip: 0 })), -1);
+    assert.equal(first(fixture({ FiltroFVG_BB: 3 })), -1);
+    return 'filtro opcional, obrigatorio, prazo inclusivo, perda de contexto, defaults e entrada invalida';
+  },
+  M03() {
+    const settings = { mode: 2, replace: { 23: [110, 170, 109, 134] }, config: { ModoFaixaOB: 0, AlertasSMC: true, MostrarUnicorn: true,
+      MostrarScoreSMC: true, FiltroVolumeBB: 2, FiltroFibBB: 1 },
+    volume: (bar) => bar === 23 ? 15 : 10 };
+    const live = structuralBreakerFixture({ ...settings, repeat: true });
+    const alertBars = (trace) => trace.flatMap((items, bar) => items.filter(([name]) => name === 'alert').map(() => bar));
+    assert.deepEqual(alertBars(live.trace), [24, 25]);
+    const simultaneous = structuralBreakerFixture({ mode: 2, repeat: true,
+      replace: { 21: [103, 120, 98, 102], 22: [103, 125, 102, 124], 23: [124, 135, 121, 134] },
+      config: { AlertasSMC: true, MostrarUnicorn: true } });
+    assert.equal(alertBars(simultaneous.trace).filter((bar) => bar === 24).length, 2);
+    assert.deepEqual(alertBars(structuralBreakerFixture({ ...settings, historical: true }).trace), []);
+    assert.ok(live.draws[24][0][5].endsWith('40/100'));
+    assert.ok(live.draws[25][0][5].endsWith('40/100'));
+    assert.equal(structuralBreakerFixture({ ...settings, volume: () => 10 }).draws[24].length, 0);
+    return 'volume obrigatorio no limite, Fibonacci, score congelado e alertas sem duplicidade';
+  },
+  M05() {
+    function withIDMCapture(distinct) {
+      return structuralBreakerFixture({
+        mode: 1, config: { FiltroIDM_BB: 2, MostrarScoreSMC: true },
+        before(model, bar) {
+          if (bar !== 24) return;
+          const capture = model.element('bbrevcaptura', 300);
+          const base = updated.constants.lqcapacidadeniveis;
+          const active = model.element('lqtotalniveis', 2);
+          const slot = Array.from({ length: active }, (_, i) => base + i)
+            .find((index) => model.element('lqid', index) === capture);
+          assert.ok(slot !== undefined && capture > 0);
+          assert.equal(model.element('lqestado', slot), updated.constants.lqgrab);
+          const source = model.element('lqprimeirafonte', slot);
+          model.set('lqfontetipo', updated.constants.lqinducement, source);
+          if (distinct) {
+            model.set('lqtotalniveis', active + 1, 2);
+            const second = base + active;
+            model.set('lqestado', updated.constants.lqgrab, second);
+            model.set('lqfim', 22, second);
+            model.set('lqid', 999, second);
+            model.set('lqprimeirafonte', source, second);
+          }
+        },
+      });
+    }
+    const alias = withIDMCapture(false);
+    assert.match(alias.draws[24][0][5], /0\/100$/);
+    assert.equal(alias.model.element('bbzonaevidenciaidm', 300), alias.model.element('bbzonacaptura', 300));
+    const distinct = withIDMCapture(true);
+    assert.match(distinct.draws[24][0][5], /20\/100$/);
+    assert.equal(distinct.model.element('bbzonaevidenciaidm', 300), 999);
+    return 'filtro IDM reconhece alias da captura principal, e o score exige uma captura distinta';
   },
   I07() {
     const options = { length: 21, envelope: { 18: [106, 110, 99, 108] } };
