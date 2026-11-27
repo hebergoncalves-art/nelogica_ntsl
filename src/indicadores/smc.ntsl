@@ -382,6 +382,7 @@ input
   MaxDistBarrasFlipBB(10);
   MostrarScoreSMC(True);
   AlertasSMC(False);
+  AlertasFVG(True);
 
 var
   periodo, perna, vies : Integer;
@@ -883,7 +884,7 @@ begin
     lqSessaoDuracao := Mod(lqSessaoFimMin - lqSessaoInicioMin + 1440, 1440);
     lqSessaoValida := Mod(lqSessaoDuracao, IntervaloSessaoLQ) = 0;
   end;
-  smcCalcula := DebugSMC or flipCalcula or idmCalcula or lqCalcula or bbCalcula;
+  smcCalcula := DebugSMC or flipCalcula or idmCalcula or lqCalcula or bbCalcula or AlertasFVG;
 
   smcColeta := False;
   if smcCalcula then
@@ -2030,7 +2031,7 @@ begin
     end;
   end;
 
-  if calculaFVG or calculaBreaker or flipDetectaFVG or bbUsaFVG13
+  if calculaFVG or calculaBreaker or flipDetectaFVG or bbUsaFVG13 or AlertasFVG
     or (idmUsaConfluencia and (FiltroFVGIDM > 0)) then
   begin
     ladoNovoFVG := 0;
@@ -2401,11 +2402,11 @@ begin
         unicornConfirmacao[integracaoSlot] := -1;
   end;
   integracaoAlertar := False;
-  if AlertasSMC and LastBarOnChart then
+  if (AlertasSMC or AlertasFVG) and LastBarOnChart then
   begin
     if alertaPrimeiraBarra < 0 then
       alertaPrimeiraBarra := CurrentBar;
-    integracaoAlertar := CurrentBar > alertaPrimeiraBarra;
+    integracaoAlertar := AlertasSMC and (CurrentBar > alertaPrimeiraBarra);
   end;
 
   // t+1 fecha o lote de t. LastBarOnChart tambem vale durante a formacao.
@@ -2426,6 +2427,14 @@ begin
       smcTick := MinPriceIncrement;
       smcBarraValida := smcConfigValida and (smcTick > 0) and (High[1] >= Low[1])
         and (High[1] >= Max(Open[1], Close[1])) and (Low[1] <= Min(Open[1], Close[1]));
+      if AlertasFVG and LastBarOnChart and (CurrentBar > alertaPrimeiraBarra)
+        and (CurrentBar >= 3) and smcBarraValida then
+      begin
+        if ladoNovoFVG[1] = 1 then
+          Alert(clGreen)
+        else if ladoNovoFVG[1] = -1 then
+          Alert(clRed);
+      end;
       // Reutilizar a deteccao legada, lendo somente a formacao ja fechada.
       if bbUsaFVG13 and smcBarraValida then
       begin

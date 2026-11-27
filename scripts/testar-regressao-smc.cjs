@@ -308,7 +308,7 @@ const integrationDefaults = {
   mostrarunicorn: false, minoverlapticks: 1, exigirfvgdisponivelunicorn: true, maxbarrasfiltrofvg_bb: 2,
   filtrofvg_bb: 0, filtroidm_bb: 0, filtroflip_bb: 0, filtrovolumebb: 0, filtrofibbb: 0,
   fibpreferencialbb: 61.8, fibextremobb: 81.8, maxdistbarrasflipbb: 10,
-  mostrarscoresmc: false, alertassmc: false,
+  mostrarscoresmc: false, alertassmc: false, alertasfvg: false,
 };
 // As regressões executam a lógica atual com os defaults anteriores.
 const updated = { ...integrated, inputs: { ...acceptedManagedBB.inputs, ...integrationDefaults } };
@@ -859,7 +859,7 @@ const cases = {
       ['mostrarunicorn', false], ['minoverlapticks', 1], ['exigirfvgdisponivelunicorn', true],
       ['maxbarrasfiltrofvg_bb', 2], ['filtrofvg_bb', 0], ['filtroidm_bb', 0], ['filtroflip_bb', 0],
       ['filtrovolumebb', 0], ['filtrofibbb', 0], ['fibpreferencialbb', 61.8], ['fibextremobb', 81.8],
-      ['maxdistbarrasflipbb', 10], ['mostrarscoresmc', false], ['alertassmc', false],
+      ['maxdistbarrasflipbb', 10], ['mostrarscoresmc', false], ['alertassmc', false], ['alertasfvg', false],
     ]);
     assert.equal(sha(acceptedManagedBBSource), '5f4d48907bbf0ffba490d63e91889e5f66ba61669957083403d83ef278d7e817');
     assert.deepEqual(Object.entries(updated.inputs).slice(0, Object.keys(acceptedManagedBB.inputs).length),
@@ -3021,6 +3021,34 @@ const cases = {
     assert.ok(candidates.trace.some((drawing) => drawing.some(([name, text]) => name === 'plottext' && text.startsWith('OB BB'))));
     return 'painel e slots, ranking após filtros, guias, rótulos e paridade legada com a revisão aceita';
   },
+  N02() {
+    const settings = { MostrarFVG: false, FiltroAutomaticoFVG: false };
+    const onlyAlerts = (calls) => calls.filter(([name]) => name === 'alert');
+    for (const side of [1, -1]) {
+      const rows = [[100, 101, 99, 100], [100, 112, 99, 111], [108, 113, 105, 110],
+        [110, 112, 99, 104], [104, 109, 103, 107]];
+      const bars = dated(side === 1 ? rows : rows.map(([o, h, l, c]) => [200 - o, 200 - l, 200 - h, 200 - c]));
+      const create = (overrides = {}) => runtime(updated, bars, { ...settings, AlertasFVG: true, ...overrides });
+      const live = create();
+      for (let bar = 0; bar < bars.length; bar++) {
+        const expected = bar === 3 ? [['alert', side === 1 ? 'clgreen' : 'clred']] : [];
+        assert.deepEqual(onlyAlerts(live.step(bar)), expected);
+        assert.deepEqual(onlyAlerts(live.step(bar)), []);
+      }
+      for (const overrides of [{}, { AlertasFVG: false }]) {
+        const model = create(overrides);
+        bars.forEach((_, bar) => assert.deepEqual(onlyAlerts(model.step(bar,
+          overrides.AlertasFVG === false || bar === 3)), []));
+      }
+
+      const provisional = create();
+      for (let bar = 0; bar <= 2; bar++) provisional.step(bar);
+      bars[2][side === 1 ? 2 : 1] = bars[0][side === 1 ? 1 : 2];
+      assert.deepEqual(onlyAlerts(provisional.step(2)), []);
+      assert.deepEqual(onlyAlerts(provisional.step(3)), []);
+    }
+    return 'FVG de alta e baixa, desenho oculto, candle fechado, carga silenciosa e chamada unica';
+  },
   N01() {
     const expectedDefaults = {
       periodoswing: 10,
@@ -3063,6 +3091,7 @@ const cases = {
       filtrovolumebb: 1,
       filtrofibbb: 1,
       mostrarscoresmc: true,
+      alertasfvg: true,
     };
     assert.deepEqual(Object.entries(integrated.inputs), Object.entries({ ...updated.inputs, ...expectedDefaults }));
     for (const tick of [5, 0.5]) {
@@ -3078,7 +3107,7 @@ const cases = {
       assert.ok(trace.flat().some(([name]) => name === 'horizontallinecustom'));
       assert.ok(trace.every((calls) => calls.every(([name]) => name !== 'alert')));
     }
-    return 'defaults de WIN e WDO, camadas ativas e alertas desligados com ticks 5 e 0,5';
+    return 'defaults de WIN e WDO, camadas ativas e carga silenciosa com ticks 5 e 0,5';
   },
   M04() {
     const rise = Array.from({ length: 110 }, (_, i) => [100 + i * 5, 103 + i * 5, 99 + i * 5, 102 + i * 5]);

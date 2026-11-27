@@ -20,6 +20,10 @@ SHA-256 do fonte: `2129f5384ebf1f362c7bbf6b8c8d7927878d7e751f9074f3334b73979c711
 
 A suíte local passou em 89 cenários, incluindo M01–M05. Na medição com 1.310 candles, a mediana de três execuções foi de 374,9 ms na 12C, 346,8 ms na 13 com recursos novos desligados e 502,1 ms com Unicorn, score e filtros opcionais ligados. As duas variantes foram exportadas e conferidas pelo hash e pela presença de `Alert` apenas na variante Alarme.
 
+## Alerta de formação de FVG
+
+`AlertasFVG=True` habilita o alerta de FVG por padrão e funciona com `AlertasSMC=False` e `MostrarFVG=False`. O detector respeita `FiltroAutomaticoFVG`. Quando o terceiro candle fecha confirmando o FVG, o sinal é publicado na primeira avaliação do candle seguinte, em verde para alta e em vermelho para baixa. Carga do histórico, toque e mitigação ficam sem aviso.
+
 ## Roteiro de validação
 
 1. Compile `src/indicadores/smc.ntsl` no Editor de Estratégias. Aplique como indicador e confira a paridade com os presets da 12C no painel e nos slots 1–4 e 9–12.
